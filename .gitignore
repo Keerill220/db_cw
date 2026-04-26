@@ -1,0 +1,44 @@
+# ── Runtime artefacts from start.sh / stop.sh ──────────────
+.run/
+
+# ── OS / Editor ────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ── Logs ───────────────────────────────────────────────────
+*.log
+logs/
+
+# ── .NET / Backend ─────────────────────────────────────────
+Back/**/bin/
+Back/**/obj/
+Back/**/out/
+Back/**/*.user
+Back/**/*.suo
+Back/**/.vs/
+
+# Keep migrations under version control, ignore EF runtime artefacts
+Back/**/.efbuildignore
+
+# ── Node / Frontend ────────────────────────────────────────
+Front/node_modules/
+Front/dist/
+Front/dist-ssr/
+Front/.vite/
+Front/coverage/
+Front/.env
+Front/.env.local
+Front/.env.*.local
+Front/npm-debug.log*
+Front/yarn-debug.log*
+Front/yarn-error.log*
+Front/pnpm-debug.log*
+
+# ── Misc ───────────────────────────────────────────────────
+*.pid
+.cache/
+tmp/
