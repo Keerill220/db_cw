@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { Building2, DoorOpen, Wrench, BarChart3, Plus, Edit3, Trash2, Users, X } from "lucide-react";
+import { Building2, DoorOpen, Wrench, BarChart3, Plus, Edit3, Trash2, Users, X, Search } from "lucide-react";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { studios as studiosApi, rooms as roomsApi, equipment as equipmentApi, lookups, reports } from "../api";
 import type { Studio, StudioDetail, RoomSummary, Equipment, City, EquipmentType, OccupancyReportItem, RevenueReportItem, TopRoom } from "../api/types";
 import { useAuth } from "../context/AuthContext";
 import { formatCurrency, monthLabel } from "../lib/format";
 import { notifyError } from "../api/client";
+import { SearchSelect } from "../components/SearchSelect";
 import { toast } from "sonner";
 
 const tabs = [
@@ -62,6 +63,7 @@ function StudiosTab() {
   const [cities, setCities] = useState<City[]>([]);
   const [editing, setEditing] = useState<Studio | null>(null);
   const [creating, setCreating] = useState(false);
+  const [query, setQuery] = useState("");
 
   const load = () => {
     studiosApi.list({ page: 1, pageSize: 100 }).then((r) => setItems(r.data)).catch(notifyError);
@@ -71,6 +73,16 @@ function StudiosTab() {
     load();
     lookups.cities().then(setCities).catch(() => {});
   }, []);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return items;
+    return items.filter((s) =>
+      s.name.toLowerCase().includes(q) ||
+      s.cityName.toLowerCase().includes(q) ||
+      s.address.toLowerCase().includes(q)
+    );
+  }, [items, query]);
 
   const remove = async (id: number) => {
     if (!confirm("Видалити студію?")) return;
@@ -85,14 +97,25 @@ function StudiosTab() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
         <h2>Студії</h2>
-        <button
-          onClick={() => setCreating(true)}
-          className="px-4 py-2 bg-teal-600 text-white rounded-lg text-sm flex items-center gap-2 hover:bg-teal-700"
-        >
-          <Plus className="w-4 h-4" /> Додати студію
-        </button>
+        <div className="flex items-center gap-3 flex-1 sm:flex-none sm:min-w-[420px] justify-end">
+          <div className="flex-1 flex items-center gap-2 px-3 py-2 bg-white border border-border rounded-lg">
+            <Search className="w-4 h-4 text-muted-foreground" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Пошук за назвою, містом, адресою…"
+              className="w-full bg-transparent outline-none text-sm"
+            />
+          </div>
+          <button
+            onClick={() => setCreating(true)}
+            className="px-4 py-2 bg-teal-600 text-white rounded-lg text-sm flex items-center gap-2 hover:bg-teal-700 shrink-0"
+          >
+            <Plus className="w-4 h-4" /> Додати студію
+          </button>
+        </div>
       </div>
       <div className="bg-white border border-border rounded-2xl overflow-hidden">
         <table className="w-full">
@@ -106,7 +129,7 @@ function StudiosTab() {
             </tr>
           </thead>
           <tbody>
-            {items.map((s) => (
+            {filtered.map((s) => (
               <tr key={s.studioId} className="border-b border-border last:border-0">
                 <td className="px-4 py-3 text-sm">{s.name}</td>
                 <td className="px-4 py-3 text-sm text-muted-foreground">{s.cityName}</td>
@@ -128,8 +151,8 @@ function StudiosTab() {
                 </td>
               </tr>
             ))}
-            {items.length === 0 && (
-              <tr><td colSpan={5} className="px-4 py-8 text-center text-sm text-muted-foreground">Студій немає</td></tr>
+            {filtered.length === 0 && (
+              <tr><td colSpan={5} className="px-4 py-8 text-center text-sm text-muted-foreground">{query ? "Нічого не знайдено" : "Студій немає"}</td></tr>
             )}
           </tbody>
         </table>
@@ -235,14 +258,14 @@ function RoomsTab() {
     <div>
       <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
         <h2>Кімнати</h2>
-        <div className="flex items-center gap-3">
-          <select
-            value={studioId ?? ""}
-            onChange={(e) => setStudioId(Number(e.target.value))}
-            className="px-3 py-2 bg-white border border-border rounded-lg text-sm"
-          >
-            {studios.map((s) => <option key={s.studioId} value={s.studioId}>{s.name}</option>)}
-          </select>
+        <div className="flex items-center gap-3 flex-wrap">
+          <SearchSelect
+            className="min-w-[260px]"
+            options={studios.map((s) => ({ id: s.studioId, label: s.name, hint: `${s.cityName}, ${s.address}` }))}
+            value={studioId}
+            onChange={(v) => setStudioId(v)}
+            placeholder="Оберіть студію…"
+          />
           <button
             onClick={() => setCreating(true)}
             disabled={!studioId}
@@ -400,13 +423,21 @@ function EquipmentTab() {
     <div>
       <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
         <h2>Обладнання</h2>
-        <div className="flex items-center gap-3">
-          <select value={studioId ?? ""} onChange={(e) => setStudioId(Number(e.target.value))} className="px-3 py-2 bg-white border border-border rounded-lg text-sm">
-            {studios.map((s) => <option key={s.studioId} value={s.studioId}>{s.name}</option>)}
-          </select>
-          <select value={roomId ?? ""} onChange={(e) => setRoomId(Number(e.target.value))} className="px-3 py-2 bg-white border border-border rounded-lg text-sm">
-            {detail?.rooms.map((r) => <option key={r.roomId} value={r.roomId}>{r.name}</option>)}
-          </select>
+        <div className="flex items-center gap-3 flex-wrap">
+          <SearchSelect
+            className="min-w-[220px]"
+            options={studios.map((s) => ({ id: s.studioId, label: s.name, hint: s.cityName }))}
+            value={studioId}
+            onChange={(v) => setStudioId(v)}
+            placeholder="Оберіть студію…"
+          />
+          <SearchSelect
+            className="min-w-[200px]"
+            options={(detail?.rooms ?? []).map((r) => ({ id: r.roomId, label: r.name, hint: `${r.areaSqm} м² · ${formatCurrency(r.pricePerHour)}/год` }))}
+            value={roomId}
+            onChange={(v) => setRoomId(v)}
+            placeholder="Оберіть кімнату…"
+          />
           <button onClick={() => setCreating(true)} disabled={!roomId} className="px-4 py-2 bg-teal-600 text-white rounded-lg text-sm flex items-center gap-2 hover:bg-teal-700 disabled:opacity-50">
             <Plus className="w-4 h-4" /> Додати
           </button>

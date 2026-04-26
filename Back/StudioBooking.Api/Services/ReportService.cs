@@ -1,9 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using StudioBooking.Api.Auth;
-using StudioBooking.Api.Common.Exceptions;
 using StudioBooking.Api.Data;
 using StudioBooking.Api.DTOs.Common;
-using StudioBooking.Api.Repositories.Interfaces;
 
 namespace StudioBooking.Api.Services;
 
@@ -27,72 +25,94 @@ public class ReportService : IReportService
     public async Task<IEnumerable<OccupancyReportItemDto>> GetOccupancyAsync(CancellationToken ct)
     {
         var cutoff = DateOnly.FromDateTime(DateTime.UtcNow.AddMonths(-7));
-        var q = _db.Bookings
-            .Where(b => b.Date >= cutoff && (b.Status == Models.Entities.BookingStatus.Confirmed || b.Status == Models.Entities.BookingStatus.Completed))
-            .Join(_db.Rooms, b => b.RoomId, r => r.RoomId, (b, r) => new { b, r })
-            .Join(_db.Studios, x => x.r.StudioId, s => s.StudioId, (x, s) => new { x.b, x.r, s });
+        var ownerId = _currentUser.Role == Roles.Owner ? _currentUser.UserId : (int?)null;
 
-        if (_currentUser.Role == Roles.Owner)
-            q = q.Where(x => x.s.AdminId == _currentUser.UserId);
-
-        var grouped = await q
-            .GroupBy(x => new { x.s.StudioId, x.s.Name, x.b.Date })
-            .Select(g => new
+        var rows = await _db.Bookings
+            .Where(b => b.Date >= cutoff &&
+                        (b.Status == Models.Entities.BookingStatus.Confirmed ||
+                         b.Status == Models.Entities.BookingStatus.Completed))
+            .Where(b => ownerId == null || b.Room.Studio.AdminId == ownerId)
+            .Select(b => new
             {
-                g.Key.StudioId, g.Key.Name,
-                Year = g.Key.Date.Year, Month = g.Key.Date.Month,
-                Count = g.Count(),
+                b.Room.StudioId,
+                StudioName = b.Room.Studio.Name,
+                b.Date,
+                b.StartTime,
+                b.EndTime,
             })
-            .GroupBy(x => new { x.StudioId, x.Name, x.Year, x.Month })
-            .Select(g => new OccupancyReportItemDto(
-                g.Key.StudioId, g.Key.Name,
-                g.Key.Month, g.Key.Year,
-                g.Sum(x => x.Count), 0))
-            .OrderBy(x => x.StudioId).ThenBy(x => x.Year).ThenBy(x => x.Month)
             .ToListAsync(ct);
 
-        return grouped;
+        return rows
+            .GroupBy(x => new { x.StudioId, x.StudioName, x.Date.Year, x.Date.Month })
+            .Select(g => new OccupancyReportItemDto(
+                g.Key.StudioId,
+                g.Key.StudioName,
+                g.Key.Month,
+                g.Key.Year,
+                g.Count(),
+                (int)Math.Round(g.Sum(x => (x.EndTime - x.StartTime).TotalHours))))
+            .OrderBy(x => x.StudioId).ThenBy(x => x.Year).ThenBy(x => x.Month)
+            .ToList();
     }
 
     public async Task<IEnumerable<RevenueReportItemDto>> GetRevenueAsync(CancellationToken ct)
     {
         var cutoff = DateOnly.FromDateTime(DateTime.UtcNow.AddMonths(-7));
-        var q = _db.Bookings
-            .Where(b => b.Date >= cutoff && (b.Status == Models.Entities.BookingStatus.Confirmed || b.Status == Models.Entities.BookingStatus.Completed))
-            .Join(_db.Rooms, b => b.RoomId, r => r.RoomId, (b, r) => new { b, r })
-            .Join(_db.Studios, x => x.r.StudioId, s => s.StudioId, (x, s) => new { x.b, s });
+        var ownerId = _currentUser.Role == Roles.Owner ? _currentUser.UserId : (int?)null;
 
-        if (_currentUser.Role == Roles.Owner)
-            q = q.Where(x => x.s.AdminId == _currentUser.UserId);
-
-        return await q
-            .GroupBy(x => new { x.s.StudioId, x.s.Name, x.b.Date.Year, x.b.Date.Month })
-            .Select(g => new RevenueReportItemDto(
-                g.Key.StudioId, g.Key.Name,
-                g.Key.Month, g.Key.Year,
-                g.Sum(x => x.b.TotalPrice)))
-            .OrderBy(x => x.StudioId).ThenBy(x => x.Year).ThenBy(x => x.Month)
+        var rows = await _db.Bookings
+            .Where(b => b.Date >= cutoff &&
+                        (b.Status == Models.Entities.BookingStatus.Confirmed ||
+                         b.Status == Models.Entities.BookingStatus.Completed))
+            .Where(b => ownerId == null || b.Room.Studio.AdminId == ownerId)
+            .Select(b => new
+            {
+                b.Room.StudioId,
+                StudioName = b.Room.Studio.Name,
+                b.Date,
+                b.TotalPrice,
+            })
             .ToListAsync(ct);
+
+        return rows
+            .GroupBy(x => new { x.StudioId, x.StudioName, x.Date.Year, x.Date.Month })
+            .Select(g => new RevenueReportItemDto(
+                g.Key.StudioId,
+                g.Key.StudioName,
+                g.Key.Month,
+                g.Key.Year,
+                g.Sum(x => x.TotalPrice)))
+            .OrderBy(x => x.StudioId).ThenBy(x => x.Year).ThenBy(x => x.Month)
+            .ToList();
     }
 
     public async Task<IEnumerable<TopRoomDto>> GetTopRoomsAsync(CancellationToken ct)
     {
         var cutoff = DateOnly.FromDateTime(DateTime.UtcNow.AddMonths(-7));
-        var q = _db.Bookings
+        var ownerId = _currentUser.Role == Roles.Owner ? _currentUser.UserId : (int?)null;
+
+        var rows = await _db.Bookings
             .Where(b => b.Date >= cutoff && b.Status != Models.Entities.BookingStatus.Cancelled)
-            .Join(_db.Rooms, b => b.RoomId, r => r.RoomId, (b, r) => new { b, r })
-            .Join(_db.Studios, x => x.r.StudioId, s => s.StudioId, (x, s) => new { x.b, x.r, s });
+            .Where(b => ownerId == null || b.Room.Studio.AdminId == ownerId)
+            .Select(b => new
+            {
+                b.RoomId,
+                RoomName = b.Room.Name,
+                StudioName = b.Room.Studio.Name,
+                b.TotalPrice,
+            })
+            .ToListAsync(ct);
 
-        if (_currentUser.Role == Roles.Owner)
-            q = q.Where(x => x.s.AdminId == _currentUser.UserId);
-
-        return await q
-            .GroupBy(x => new { x.r.RoomId, RoomName = x.r.Name, StudioName = x.s.Name })
+        return rows
+            .GroupBy(x => new { x.RoomId, x.RoomName, x.StudioName })
             .Select(g => new TopRoomDto(
-                g.Key.RoomId, g.Key.RoomName, g.Key.StudioName,
-                g.Count(), g.Sum(x => x.b.TotalPrice)))
+                g.Key.RoomId,
+                g.Key.RoomName,
+                g.Key.StudioName,
+                g.Count(),
+                g.Sum(x => x.TotalPrice)))
             .OrderByDescending(x => x.TotalBookings)
             .Take(20)
-            .ToListAsync(ct);
+            .ToList();
     }
 }
