@@ -1,103 +1,146 @@
+import { useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { Music } from "lucide-react";
-import { useState } from "react";
-import { useForm } from "react-hook-form";
-import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
-import { getApiError } from "../api/client";
-
-interface FormData {
-  firstName: string;
-  lastName: string;
-  email: string;
-  phone?: string;
-  password: string;
-  confirmPassword: string;
-}
+import { notifyError } from "../api/client";
 
 export function RegisterPage() {
-  const { register: registerUser } = useAuth();
   const navigate = useNavigate();
-  const [pending, setPending] = useState(false);
-  const { register, handleSubmit, watch, formState: { errors } } = useForm<FormData>();
-  const password = watch("password");
+  const { register } = useAuth();
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const onSubmit = async (data: FormData) => {
-    setPending(true);
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    if (password.length < 6) {
+      setError("Пароль має бути не менше 6 символів");
+      return;
+    }
+    if (password !== confirm) {
+      setError("Паролі не співпадають");
+      return;
+    }
+    setSubmitting(true);
     try {
-      await registerUser({
-        email: data.email,
-        password: data.password,
-        firstName: data.firstName,
-        lastName: data.lastName,
-        phone: data.phone,
-      });
-      toast.success("Акаунт створено!");
-      navigate("/", { replace: true });
+      await register({ email, password, firstName, lastName, phone: phone || undefined });
+      navigate("/");
     } catch (err) {
-      toast.error(getApiError(err));
+      notifyError(err);
     } finally {
-      setPending(false);
+      setSubmitting(false);
     }
   };
 
   return (
-    <div className="min-h-[80vh] flex items-center justify-center px-4 py-10">
+    <div className="min-h-[80vh] flex items-center justify-center px-4 py-8">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <div className="w-12 h-12 bg-teal-100 rounded-xl flex items-center justify-center mx-auto mb-4">
             <Music className="w-6 h-6 text-teal-600" />
           </div>
           <h1>Реєстрація</h1>
-          <p className="text-sm text-muted-foreground mt-1">Створіть акаунт клієнта SoundSpace</p>
+          <p className="text-sm text-muted-foreground mt-1">Створіть акаунт у SoundSpace</p>
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="bg-white border border-border rounded-2xl p-6 space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Ім'я" error={errors.firstName?.message}>
-              <input {...register("firstName", { required: "Обов'язкове" })} className="input" />
-            </Field>
-            <Field label="Прізвище" error={errors.lastName?.message}>
-              <input {...register("lastName", { required: "Обов'язкове" })} className="input" />
-            </Field>
+        <form onSubmit={submit} className="bg-white border border-border rounded-2xl p-6 space-y-4">
+          <div>
+            <label className="text-sm text-muted-foreground mb-1.5 block">Тип акаунту</label>
+            <div className="grid grid-cols-1 gap-2">
+              <button type="button" disabled className="px-4 py-2.5 border-2 border-teal-600 bg-teal-50 text-teal-600 rounded-lg text-sm">
+                Клієнт
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Власників студій додає адміністратор системи.
+            </p>
           </div>
-          <Field label="Email" error={errors.email?.message}>
-            <input type="email" {...register("email", { required: "Введіть email" })} className="input" />
-          </Field>
-          <Field label="Телефон (опціонально)">
-            <input {...register("phone")} className="input" placeholder="+380…" />
-          </Field>
-          <Field label="Пароль" error={errors.password?.message}>
-            <input type="password" {...register("password", { required: "Введіть пароль", minLength: { value: 6, message: "Мінімум 6 символів" } })} className="input" />
-          </Field>
-          <Field label="Підтвердіть пароль" error={errors.confirmPassword?.message}>
-            <input type="password" {...register("confirmPassword", { validate: (v) => v === password || "Паролі не співпадають" })} className="input" />
-          </Field>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-sm text-muted-foreground mb-1.5 block">Ім'я</label>
+              <input
+                required
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                className="w-full px-3 py-2.5 bg-gray-50 border border-border rounded-lg text-sm"
+                placeholder="Ім'я"
+              />
+            </div>
+            <div>
+              <label className="text-sm text-muted-foreground mb-1.5 block">Прізвище</label>
+              <input
+                required
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                className="w-full px-3 py-2.5 bg-gray-50 border border-border rounded-lg text-sm"
+                placeholder="Прізвище"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="text-sm text-muted-foreground mb-1.5 block">Email</label>
+            <input
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full px-3 py-2.5 bg-gray-50 border border-border rounded-lg text-sm"
+              placeholder="you@example.com"
+            />
+          </div>
+          <div>
+            <label className="text-sm text-muted-foreground mb-1.5 block">Телефон</label>
+            <input
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              className="w-full px-3 py-2.5 bg-gray-50 border border-border rounded-lg text-sm"
+              placeholder="+380..."
+            />
+          </div>
+          <div>
+            <label className="text-sm text-muted-foreground mb-1.5 block">Пароль</label>
+            <input
+              type="password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full px-3 py-2.5 bg-gray-50 border border-border rounded-lg text-sm"
+              placeholder="Мінімум 6 символів"
+            />
+          </div>
+          <div>
+            <label className="text-sm text-muted-foreground mb-1.5 block">Підтвердження пароля</label>
+            <input
+              type="password"
+              required
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              className="w-full px-3 py-2.5 bg-gray-50 border border-border rounded-lg text-sm"
+              placeholder="Повторіть пароль"
+            />
+          </div>
+          {error && <p className="text-sm text-red-500">{error}</p>}
           <button
             type="submit"
-            disabled={pending}
+            disabled={submitting}
             className="w-full py-3 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors disabled:opacity-50"
           >
-            {pending ? "Створення…" : "Зареєструватись"}
+            {submitting ? "Реєстрація…" : "Зареєструватись"}
           </button>
         </form>
 
         <p className="text-center text-sm text-muted-foreground mt-4">
-          Вже маєте акаунт? <Link to="/login" className="text-teal-600 no-underline">Увійти</Link>
+          Вже маєте акаунт?{" "}
+          <Link to="/login" className="text-teal-600 no-underline">Увійти</Link>
         </p>
       </div>
-      <style>{`.input { width: 100%; padding: 0.625rem 0.75rem; background: #f9fafb; border: 1px solid var(--color-border); border-radius: 0.5rem; font-size: 0.875rem; outline: none; }
-        .input:focus { box-shadow: 0 0 0 2px rgb(20 184 166 / 0.5); }`}</style>
-    </div>
-  );
-}
-
-function Field({ label, error, children }: { label: string; error?: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <label className="text-sm text-muted-foreground mb-1.5 block">{label}</label>
-      {children}
-      {error && <p className="text-xs text-rose-600 mt-1">{error}</p>}
     </div>
   );
 }

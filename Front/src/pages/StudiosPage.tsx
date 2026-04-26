@@ -1,129 +1,214 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router";
-import { Search, MapPin, Building2 } from "lucide-react";
+import { Link, useSearchParams } from "react-router";
+import { Search, MapPin, SlidersHorizontal } from "lucide-react";
 import { studios, lookups } from "../api";
-import type { City, PagedResult, Studio } from "../api/types";
+import type { City, Studio, EquipmentType } from "../api/types";
+import { StudioImage } from "../components/StudioImage";
 import { Pagination } from "../components/Pagination";
-import { notifyError } from "../api/client";
 
 export function StudiosPage() {
-  const [data, setData] = useState<PagedResult<Studio> | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
   const [cities, setCities] = useState<City[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(1);
-  const [q, setQ] = useState("");
-  const [cityId, setCityId] = useState<number | "">("");
-  const [minPrice, setMinPrice] = useState<string>("");
-  const [maxPrice, setMaxPrice] = useState<string>("");
-  const [filtersTrigger, setFiltersTrigger] = useState(0);
+  const [eqTypes, setEqTypes] = useState<EquipmentType[]>([]);
+
+  const [cityId, setCityId] = useState<string>(searchParams.get("cityId") ?? "");
+  const [minPrice, setMinPrice] = useState<string>(searchParams.get("minPrice") ?? "");
+  const [maxPrice, setMaxPrice] = useState<string>(searchParams.get("maxPrice") ?? "");
+  const [q, setQ] = useState<string>(searchParams.get("q") ?? "");
+  const [eqChecked, setEqChecked] = useState<Set<number>>(new Set());
+
+  const [page, setPage] = useState(Number(searchParams.get("page") ?? 1));
+  const [data, setData] = useState<Studio[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const pageSize = 9;
 
   useEffect(() => {
-    lookups.cities().then(setCities).catch(notifyError);
+    lookups.cities().then(setCities).catch(() => {});
+    lookups.equipmentTypes().then(setEqTypes).catch(() => {});
   }, []);
 
   useEffect(() => {
     setLoading(true);
-    studios.list({
-      page,
-      pageSize: 12,
-      cityId: cityId === "" ? undefined : Number(cityId),
-      minPrice: minPrice ? Number(minPrice) : undefined,
-      maxPrice: maxPrice ? Number(maxPrice) : undefined,
-      q: q || undefined,
-    })
-      .then(setData)
-      .catch(notifyError)
+    studios
+      .list({
+        page,
+        pageSize,
+        cityId: cityId ? Number(cityId) : undefined,
+        minPrice: minPrice ? Number(minPrice) : undefined,
+        maxPrice: maxPrice ? Number(maxPrice) : undefined,
+        q: q || undefined,
+      })
+      .then((r) => {
+        setData(r.data);
+        setTotal(r.total);
+      })
+      .catch(() => {})
       .finally(() => setLoading(false));
-  }, [page, filtersTrigger]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [page, cityId, minPrice, maxPrice, q]);
 
-  const applyFilters = () => {
+  const apply = () => {
     setPage(1);
-    setFiltersTrigger((n) => n + 1);
+    const sp: Record<string, string> = {};
+    if (cityId) sp.cityId = cityId;
+    if (minPrice) sp.minPrice = minPrice;
+    if (maxPrice) sp.maxPrice = maxPrice;
+    if (q) sp.q = q;
+    setSearchParams(sp);
   };
 
-  const resetFilters = () => {
-    setQ(""); setCityId(""); setMinPrice(""); setMaxPrice("");
+  const reset = () => {
+    setCityId("");
+    setMinPrice("");
+    setMaxPrice("");
+    setQ("");
+    setEqChecked(new Set());
     setPage(1);
-    setFiltersTrigger((n) => n + 1);
+    setSearchParams({});
+  };
+
+  const toggleEq = (id: number) => {
+    const next = new Set(eqChecked);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    setEqChecked(next);
   };
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div className="mb-6">
-        <h1>Усі студії</h1>
-        <p className="text-sm text-muted-foreground mt-1">Знайдіть ідеальну студію для репетиції чи запису</p>
-      </div>
+      <h1 className="mb-6">Каталог студій</h1>
 
-      <div className="bg-white border border-border rounded-2xl p-4 mb-6 grid grid-cols-1 md:grid-cols-5 gap-3">
-        <div className="md:col-span-2 relative">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && applyFilters()}
-            placeholder="Назва або адреса"
-            className="w-full pl-9 pr-3 py-2.5 bg-gray-50 border border-border rounded-lg text-sm"
+      <div className="flex flex-col lg:flex-row gap-6">
+        <aside className="lg:w-64 shrink-0">
+          <div className="bg-white border border-border rounded-2xl p-5 space-y-5 sticky top-24">
+            <div className="flex items-center justify-between">
+              <h3 className="flex items-center gap-2"><SlidersHorizontal className="w-4 h-4" /> Фільтри</h3>
+              <button onClick={reset} className="text-xs text-teal-600">Скинути</button>
+            </div>
+
+            <div>
+              <label className="text-sm text-muted-foreground mb-1.5 block">Місто</label>
+              <select
+                value={cityId}
+                onChange={(e) => setCityId(e.target.value)}
+                className="w-full px-3 py-2 bg-gray-50 border border-border rounded-lg text-sm"
+              >
+                <option value="">Усі міста</option>
+                {cities.map((c) => <option key={c.cityId} value={c.cityId}>{c.name}</option>)}
+              </select>
+            </div>
+
+            <div>
+              <label className="text-sm text-muted-foreground mb-1.5 block">Ціна (грн/год)</label>
+              <div className="flex gap-2">
+                <input
+                  value={minPrice}
+                  onChange={(e) => setMinPrice(e.target.value)}
+                  placeholder="Від"
+                  inputMode="numeric"
+                  className="w-full px-3 py-2 bg-gray-50 border border-border rounded-lg text-sm"
+                />
+                <input
+                  value={maxPrice}
+                  onChange={(e) => setMaxPrice(e.target.value)}
+                  placeholder="До"
+                  inputMode="numeric"
+                  className="w-full px-3 py-2 bg-gray-50 border border-border rounded-lg text-sm"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-sm text-muted-foreground mb-1.5 block">Обладнання</label>
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {eqTypes.map((eq) => (
+                  <label key={eq.typeId} className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={eqChecked.has(eq.typeId)}
+                      onChange={() => toggleEq(eq.typeId)}
+                      className="rounded border-border accent-teal-600"
+                    />
+                    {eq.name}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <button onClick={apply} className="w-full py-2.5 bg-teal-600 text-white rounded-lg text-sm hover:bg-teal-700 transition-colors">
+              Застосувати
+            </button>
+          </div>
+        </aside>
+
+        <div className="flex-1">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="flex-1 flex items-center gap-2 px-3 py-2.5 bg-white border border-border rounded-lg">
+              <Search className="w-4 h-4 text-muted-foreground" />
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && apply()}
+                placeholder="Пошук за назвою..."
+                className="w-full bg-transparent outline-none text-sm"
+              />
+            </div>
+            <select className="px-3 py-2.5 bg-white border border-border rounded-lg text-sm">
+              <option>За назвою</option>
+            </select>
+          </div>
+
+          <p className="text-sm text-muted-foreground mb-4">
+            {loading ? "Завантаження…" : `Знайдено ${total} студій`}
+          </p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5">
+            {data.map((s) => (
+              <Link
+                key={s.studioId}
+                to={`/studios/${s.studioId}`}
+                className="group rounded-2xl border border-border overflow-hidden bg-white no-underline text-foreground hover:shadow-lg transition-shadow"
+              >
+                <div className="aspect-[16/10] overflow-hidden">
+                  <StudioImage
+                    src={s.photoUrl}
+                    alt={s.name}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                  />
+                </div>
+                <div className="p-4">
+                  <div className="flex items-center justify-between mb-1">
+                    <h4>{s.name}</h4>
+                    {!s.isActive && (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">Неактивна</span>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground flex items-center gap-1 mb-2">
+                    <MapPin className="w-3 h-3" />{s.cityName}, {s.address}
+                  </p>
+                  {s.description && (
+                    <p className="text-xs text-muted-foreground line-clamp-2 mb-3">{s.description}</p>
+                  )}
+                  <div className="flex items-center justify-between text-sm pt-2 border-t border-border">
+                    <span className="text-teal-600">{s.country}</span>
+                    <span className="text-muted-foreground">Деталі →</span>
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+
+          {!loading && data.length === 0 && (
+            <div className="text-center py-12 text-muted-foreground">Студій не знайдено</div>
+          )}
+
+          <Pagination
+            page={page}
+            pageSize={pageSize}
+            total={total}
+            onChange={setPage}
           />
         </div>
-        <select
-          value={cityId}
-          onChange={(e) => setCityId(e.target.value === "" ? "" : Number(e.target.value))}
-          className="px-3 py-2.5 bg-gray-50 border border-border rounded-lg text-sm"
-        >
-          <option value="">Усі міста</option>
-          {cities.map((c) => <option key={c.cityId} value={c.cityId}>{c.name}</option>)}
-        </select>
-        <input
-          type="number"
-          placeholder="Ціна від"
-          value={minPrice}
-          onChange={(e) => setMinPrice(e.target.value)}
-          className="px-3 py-2.5 bg-gray-50 border border-border rounded-lg text-sm"
-        />
-        <input
-          type="number"
-          placeholder="до"
-          value={maxPrice}
-          onChange={(e) => setMaxPrice(e.target.value)}
-          className="px-3 py-2.5 bg-gray-50 border border-border rounded-lg text-sm"
-        />
-        <div className="md:col-span-5 flex gap-2">
-          <button onClick={applyFilters} className="px-4 py-2 bg-teal-600 text-white rounded-lg text-sm hover:bg-teal-700">
-            Застосувати
-          </button>
-          <button onClick={resetFilters} className="px-4 py-2 border border-border rounded-lg text-sm hover:bg-accent">
-            Скинути
-          </button>
-        </div>
       </div>
-
-      {loading && <div className="text-center py-12 text-muted-foreground">Завантаження…</div>}
-      {!loading && data && data.data.length === 0 && (
-        <div className="text-center py-12 text-muted-foreground">Студій не знайдено</div>
-      )}
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {data?.data.map((s) => (
-          <Link key={s.studioId} to={`/studios/${s.studioId}`} className="bg-white border border-border rounded-2xl p-5 hover:shadow-md transition-shadow no-underline text-foreground">
-            <div className="flex items-start justify-between gap-3 mb-3">
-              <div className="w-10 h-10 rounded-xl bg-teal-100 flex items-center justify-center">
-                <Building2 className="w-5 h-5 text-teal-600" />
-              </div>
-              {!s.isActive && <span className="text-xs px-2 py-0.5 rounded bg-rose-50 text-rose-700">Не активна</span>}
-            </div>
-            <h3 className="mb-1">{s.name}</h3>
-            <p className="text-sm text-muted-foreground flex items-center gap-1">
-              <MapPin className="w-3.5 h-3.5" /> {s.cityName}, {s.address}
-            </p>
-            {s.description && <p className="text-sm text-muted-foreground mt-2 line-clamp-2">{s.description}</p>}
-            <div className="text-xs text-muted-foreground mt-3">Створено: {new Date(s.createdAt).toLocaleDateString("uk-UA")}</div>
-          </Link>
-        ))}
-      </div>
-
-      {data && (
-        <Pagination page={data.page} pageSize={data.pageSize} total={data.total} onChange={setPage} />
-      )}
     </div>
   );
 }

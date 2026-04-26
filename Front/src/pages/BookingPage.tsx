@@ -1,181 +1,283 @@
-import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router";
-import { ArrowLeft, Clock, Music } from "lucide-react";
-import { rooms, bookings } from "../api";
+import { useEffect, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router";
+import { ChevronRight, Music, Wrench, CreditCard } from "lucide-react";
+import { rooms as roomsApi, bookings } from "../api";
 import type { RoomDetail } from "../api/types";
-import { notifyError } from "../api/client";
+import { useAuth } from "../context/AuthContext";
 import { formatCurrency, todayIso } from "../lib/format";
+import { notifyError } from "../api/client";
 import { toast } from "sonner";
 
 export function BookingPage() {
-  const [params] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const initialRoomId = Number(params.get("roomId") || 0);
+  const { user } = useAuth();
+  const initialRoomId = Number(searchParams.get("roomId") || 0);
+  const initialDate = searchParams.get("date") || todayIso();
 
-  const roomId = initialRoomId;
+  const [roomId] = useState<number>(initialRoomId);
   const [room, setRoom] = useState<RoomDetail | null>(null);
-  const [date, setDate] = useState<string>(todayIso());
+  const [date, setDate] = useState<string>(initialDate);
   const [startTime, setStartTime] = useState<string>("10:00");
   const [endTime, setEndTime] = useState<string>("12:00");
-  const [equipmentIds, setEquipmentIds] = useState<number[]>([]);
-  const [note, setNote] = useState<string>("");
-  const [pending, setPending] = useState(false);
+  const [equipmentIds, setEquipmentIds] = useState<Set<number>>(new Set());
+  const [note, setNote] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (!roomId) return;
-    rooms.get(roomId, date).then(setRoom).catch(notifyError);
+    roomsApi.get(roomId, date).then(setRoom).catch(() => {});
   }, [roomId, date]);
 
-  const durationHours = useMemo(() => {
-    const [h1, m1] = startTime.split(":").map(Number);
-    const [h2, m2] = endTime.split(":").map(Number);
-    return Math.max(0, (h2 + m2 / 60) - (h1 + m1 / 60));
-  }, [startTime, endTime]);
+  const hours = (() => {
+    const start = parseInt(startTime.slice(0, 2));
+    const end = parseInt(endTime.slice(0, 2));
+    return Math.max(0, end - start);
+  })();
 
-  const equipmentSum = useMemo(() => {
-    if (!room) return 0;
-    return room.equipments
-      .filter((e) => equipmentIds.includes(e.equipmentId))
-      .reduce((s, e) => s + Number(e.pricePerHour), 0);
-  }, [room, equipmentIds]);
+  const eqTotal = room
+    ? Array.from(equipmentIds).reduce((sum, id) => {
+        const e = room.equipments.find((x) => x.equipmentId === id);
+        return sum + (e?.pricePerHour ?? 0) * hours;
+      }, 0)
+    : 0;
+  const roomTotal = (room?.pricePerHour ?? 0) * hours;
+  const total = roomTotal + eqTotal;
 
-  const totalPrice = room ? (Number(room.pricePerHour) + equipmentSum) * durationHours : 0;
-
-  const toggleEquip = (id: number) =>
-    setEquipmentIds((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+  const toggleEq = (id: number) => {
+    const next = new Set(equipmentIds);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    setEquipmentIds(next);
+  };
 
   const submit = async () => {
-    if (!room) return;
-    if (durationHours <= 0) { toast.error("Кінцевий час має бути після початкового"); return; }
-    setPending(true);
+    if (!roomId) {
+      toast.error("Спочатку оберіть кімнату на сторінці студії.");
+      return;
+    }
+    if (hours <= 0) {
+      toast.error("Час кінця має бути пізніше часу початку.");
+      return;
+    }
+    setSubmitting(true);
     try {
-      await bookings.create({
-        roomId: room.roomId,
+      const b = await bookings.create({
+        roomId,
         date,
         startTime: `${startTime}:00`,
         endTime: `${endTime}:00`,
-        equipmentIds: equipmentIds.length ? equipmentIds : undefined,
-        note: note || null,
+        note: note || undefined,
+        equipmentIds: Array.from(equipmentIds),
       });
       toast.success("Бронювання створено!");
-      navigate("/bookings", { replace: true });
+      navigate(`/bookings`);
+      void b;
     } catch (err) {
       notifyError(err);
     } finally {
-      setPending(false);
+      setSubmitting(false);
     }
   };
 
-  if (!roomId) {
-    return (
-      <div className="max-w-3xl mx-auto px-4 py-12 text-center">
-        <p className="text-muted-foreground">Перейдіть із картки кімнати, щоб створити бронювання.</p>
-      </div>
-    );
-  }
+  // Build hour options 09–22
+  const hourOptions = Array.from({ length: 14 }, (_, i) => `${String(9 + i).padStart(2, "0")}:00`);
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <button onClick={() => navigate(-1)} className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-4">
-        <ArrowLeft className="w-4 h-4" /> Назад
-      </button>
-      <h1 className="mb-6">Створення бронювання</h1>
+      <div className="flex items-center gap-1 text-sm text-muted-foreground mb-6">
+        <Link to="/studios" className="hover:text-foreground no-underline text-muted-foreground">Студії</Link>
+        <ChevronRight className="w-4 h-4" />
+        {room && (
+          <>
+            <Link
+              to={`/studios/${room.studioId}`}
+              className="hover:text-foreground no-underline text-muted-foreground"
+            >
+              {room.studioName}
+            </Link>
+            <ChevronRight className="w-4 h-4" />
+          </>
+        )}
+        <span className="text-foreground">Бронювання</span>
+      </div>
 
-      {!room && <div className="text-muted-foreground">Завантаження кімнати…</div>}
+      <h1 className="mb-8">Оформлення бронювання</h1>
 
-      {room && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 bg-white border border-border rounded-2xl p-6 space-y-5">
-            <div>
-              <div className="text-sm text-muted-foreground">Кімната</div>
-              <div className="text-lg font-medium">{room.name}</div>
-              <div className="text-sm text-muted-foreground">{room.studioName}</div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div>
-                <label className="text-sm text-muted-foreground mb-1 block">Дата</label>
-                <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full px-3 py-2.5 bg-gray-50 border border-border rounded-lg text-sm" />
-              </div>
-              <div>
-                <label className="text-sm text-muted-foreground mb-1 block">З</label>
-                <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} className="w-full px-3 py-2.5 bg-gray-50 border border-border rounded-lg text-sm" />
-              </div>
-              <div>
-                <label className="text-sm text-muted-foreground mb-1 block">До</label>
-                <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} className="w-full px-3 py-2.5 bg-gray-50 border border-border rounded-lg text-sm" />
-              </div>
-            </div>
-
-            {room.busySlots.length > 0 && (
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-                <div className="text-sm font-medium text-amber-800 mb-1.5 flex items-center gap-1">
-                  <Clock className="w-4 h-4" /> Зайняті інтервали на {date}
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {room.busySlots.map((b, i) => (
-                    <span key={i} className="text-xs px-2 py-0.5 rounded bg-white border border-amber-200 text-amber-800">
-                      {b.startTime.slice(0, 5)}–{b.endTime.slice(0, 5)}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {room.equipments.length > 0 && (
-              <div>
-                <label className="text-sm text-muted-foreground mb-2 block">Обладнання (опційно)</label>
-                <div className="space-y-2 max-h-64 overflow-auto">
-                  {room.equipments.map((e) => (
-                    <label key={e.equipmentId} className="flex items-center gap-3 p-2 rounded-lg border border-border hover:bg-gray-50 cursor-pointer">
-                      <input type="checkbox" className="accent-teal-600" checked={equipmentIds.includes(e.equipmentId)} onChange={() => toggleEquip(e.equipmentId)} />
-                      <Music className="w-4 h-4 text-muted-foreground" />
-                      <div className="flex-1">
-                        <div className="text-sm">{e.name}</div>
-                        <div className="text-xs text-muted-foreground">{e.typeName}</div>
-                      </div>
-                      <div className="text-sm text-teal-700">+{formatCurrency(Number(e.pricePerHour))}/год</div>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            )}
+      <div className="flex flex-col lg:flex-row gap-8">
+        <div className="flex-1 space-y-6">
+          {/* Booking details */}
+          <div className="bg-white border border-border rounded-2xl p-6 space-y-4">
+            <h3 className="flex items-center gap-2"><Music className="w-5 h-5 text-teal-600" /> Деталі бронювання</h3>
 
             <div>
-              <label className="text-sm text-muted-foreground mb-1 block">Примітка</label>
-              <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3} className="w-full px-3 py-2 bg-gray-50 border border-border rounded-lg text-sm" placeholder="Особливі побажання…" />
+              <label className="text-sm text-muted-foreground mb-1.5 block">Кімната</label>
+              <input
+                value={room ? `${room.name} (${formatCurrency(room.pricePerHour)}/год)` : "Оберіть кімнату на сторінці студії"}
+                readOnly
+                className="w-full px-3 py-2.5 bg-gray-50 border border-border rounded-lg text-sm"
+              />
+              {!roomId && (
+                <p className="text-xs text-amber-600 mt-1">
+                  Поверніться до <Link to="/studios" className="underline">каталогу</Link> та оберіть кімнату.
+                </p>
+              )}
             </div>
+
+            <div>
+              <label className="text-sm text-muted-foreground mb-1.5 block">Дата</label>
+              <input
+                type="date"
+                value={date}
+                min={todayIso()}
+                onChange={(e) => setDate(e.target.value)}
+                className="w-full px-3 py-2.5 bg-gray-50 border border-border rounded-lg text-sm"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm text-muted-foreground mb-1.5 block">Початок</label>
+                <select
+                  value={startTime}
+                  onChange={(e) => setStartTime(e.target.value)}
+                  className="w-full px-3 py-2.5 bg-gray-50 border border-border rounded-lg text-sm"
+                >
+                  {hourOptions.map((h) => <option key={h}>{h}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-sm text-muted-foreground mb-1.5 block">Кінець</label>
+                <select
+                  value={endTime}
+                  onChange={(e) => setEndTime(e.target.value)}
+                  className="w-full px-3 py-2.5 bg-gray-50 border border-border rounded-lg text-sm"
+                >
+                  {hourOptions.map((h) => <option key={h}>{h}</option>)}
+                </select>
+              </div>
+            </div>
+
+            {room && room.busySlots.length > 0 && (
+              <div className="text-xs text-muted-foreground bg-amber-50 border border-amber-100 rounded-lg p-3">
+                Зайняті інтервали: {room.busySlots.map((s) => `${s.startTime.slice(0,5)}–${s.endTime.slice(0,5)}`).join(", ")}
+              </div>
+            )}
           </div>
 
-          <aside className="bg-white border border-border rounded-2xl p-6 space-y-3 h-fit lg:sticky lg:top-20">
+          {/* Equipment */}
+          {room && room.equipments.length > 0 && (
+            <div className="bg-white border border-border rounded-2xl p-6 space-y-4">
+              <h3 className="flex items-center gap-2"><Wrench className="w-5 h-5 text-teal-600" /> Додаткове обладнання</h3>
+              <div className="space-y-3">
+                {room.equipments.map((eq) => (
+                  <label
+                    key={eq.equipmentId}
+                    className="flex items-center justify-between p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="checkbox"
+                        checked={equipmentIds.has(eq.equipmentId)}
+                        onChange={() => toggleEq(eq.equipmentId)}
+                        className="accent-teal-600 w-4 h-4"
+                      />
+                      <div>
+                        <p className="text-sm">{eq.name}</p>
+                        <p className="text-xs text-muted-foreground">{eq.typeName}</p>
+                      </div>
+                    </div>
+                    <span className="text-sm text-teal-600">+{formatCurrency(eq.pricePerHour)}/год</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Contact / note */}
+          <div className="bg-white border border-border rounded-2xl p-6 space-y-4">
+            <h3 className="flex items-center gap-2"><CreditCard className="w-5 h-5 text-teal-600" /> Контактна інформація</h3>
+            {user && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm text-muted-foreground mb-1.5 block">Ім'я</label>
+                  <input
+                    value={`${user.firstName} ${user.lastName}`}
+                    readOnly
+                    className="w-full px-3 py-2.5 bg-gray-50 border border-border rounded-lg text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground mb-1.5 block">Email</label>
+                  <input
+                    value={user.email}
+                    readOnly
+                    className="w-full px-3 py-2.5 bg-gray-50 border border-border rounded-lg text-sm"
+                  />
+                </div>
+              </div>
+            )}
+            <div>
+              <label className="text-sm text-muted-foreground mb-1.5 block">Коментар</label>
+              <textarea
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                className="w-full px-3 py-2.5 bg-gray-50 border border-border rounded-lg text-sm h-20 resize-none"
+                placeholder="Додаткові побажання..."
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Summary sidebar */}
+        <aside className="lg:w-72 shrink-0">
+          <div className="bg-white border border-border rounded-2xl p-5 sticky top-24 space-y-4">
             <h3>Підсумок</h3>
-            <Row label="Ціна кімнати" value={`${formatCurrency(Number(room.pricePerHour))}/год`} />
-            <Row label="Обладнання" value={`${formatCurrency(equipmentSum)}/год`} />
-            <Row label="Тривалість" value={`${durationHours.toFixed(1)} год`} />
-            <hr />
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">Разом</span>
-              <span className="text-2xl font-medium text-teal-700">{formatCurrency(totalPrice)}</span>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Студія</span>
+                <span className="text-right">{room?.studioName ?? "—"}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Кімната</span>
+                <span className="text-right">{room?.name ?? "—"}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Дата</span>
+                <span>{date}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Час</span>
+                <span>{startTime} – {endTime}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Тривалість</span>
+                <span>{hours} год</span>
+              </div>
+            </div>
+            <div className="border-t border-border pt-3 space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Кімната ({hours} год)</span>
+                <span>{formatCurrency(roomTotal)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Дод. обладнання</span>
+                <span>{formatCurrency(eqTotal)}</span>
+              </div>
+            </div>
+            <div className="border-t border-border pt-3 flex justify-between">
+              <span>Всього</span>
+              <span className="text-teal-600 text-lg">{formatCurrency(total)}</span>
             </div>
             <button
               onClick={submit}
-              disabled={pending || durationHours <= 0}
-              className="w-full py-3 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 transition-colors"
+              disabled={submitting || !roomId || hours <= 0}
+              className="w-full py-3 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {pending ? "Створення…" : "Підтвердити бронювання"}
+              {submitting ? "Створення…" : "Підтвердити бронювання"}
             </button>
-          </aside>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between text-sm">
-      <span className="text-muted-foreground">{label}</span>
-      <span>{value}</span>
+          </div>
+        </aside>
+      </div>
     </div>
   );
 }

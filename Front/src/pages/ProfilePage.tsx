@@ -1,109 +1,205 @@
-import { useEffect, useState } from "react";
-import { useForm } from "react-hook-form";
-import { User, Lock } from "lucide-react";
+import { useState } from "react";
+import { User, Mail, Phone, Edit3, Lock } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
-import { auth as authApi } from "../api/auth";
+import { auth } from "../api/auth";
 import { notifyError } from "../api/client";
 import { toast } from "sonner";
-import type { ChangePassword, ProfileUpdate } from "../api/types";
 
 export function ProfilePage() {
-  const { user, refreshMe } = useAuth();
-  const [pendingProfile, setPendingProfile] = useState(false);
-  const [pendingPwd, setPendingPwd] = useState(false);
+  const { user, refreshMe, role } = useAuth();
+  const [editing, setEditing] = useState(false);
+  const [firstName, setFirstName] = useState(user?.firstName ?? "");
+  const [lastName, setLastName] = useState(user?.lastName ?? "");
+  const [phone, setPhone] = useState(user?.phone ?? "");
+  const [saving, setSaving] = useState(false);
 
-  const profileForm = useForm<ProfileUpdate>({
-    defaultValues: { firstName: "", lastName: "", phone: "" },
-  });
-  const pwdForm = useForm<ChangePassword>();
+  const [showPwd, setShowPwd] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [pwdSaving, setPwdSaving] = useState(false);
 
-  useEffect(() => {
-    if (user) {
-      profileForm.reset({ firstName: user.firstName, lastName: user.lastName, phone: user.phone || "" });
-    }
-  }, [user, profileForm]);
+  if (!user) return null;
 
-  const saveProfile = async (data: ProfileUpdate) => {
-    setPendingProfile(true);
+  const save = async () => {
+    setSaving(true);
     try {
-      await authApi.updateProfile(data);
+      await auth.updateProfile({ firstName, lastName, phone: phone || null });
       await refreshMe();
       toast.success("Профіль оновлено");
-    } catch (e) { notifyError(e); }
-    finally { setPendingProfile(false); }
+      setEditing(false);
+    } catch (e) {
+      notifyError(e);
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const changePwd = async (data: ChangePassword) => {
-    setPendingPwd(true);
+  const changePwd = async () => {
+    if (newPassword.length < 6) {
+      toast.error("Пароль має бути не менше 6 символів");
+      return;
+    }
+    setPwdSaving(true);
     try {
-      await authApi.changePassword(data);
+      await auth.changePassword({ currentPassword, newPassword });
       toast.success("Пароль змінено");
-      pwdForm.reset();
-    } catch (e) { notifyError(e); }
-    finally { setPendingPwd(false); }
+      setShowPwd(false);
+      setCurrentPassword("");
+      setNewPassword("");
+    } catch (e) {
+      notifyError(e);
+    } finally {
+      setPwdSaving(false);
+    }
   };
+
+  const cancel = () => {
+    setFirstName(user.firstName);
+    setLastName(user.lastName);
+    setPhone(user.phone ?? "");
+    setEditing(false);
+  };
+
+  const roleLabel = role === "Client" ? "Клієнт" : role === "Owner" ? "Власник студії" : "Суперадмін";
 
   return (
-    <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-      <div>
-        <h1>Профіль</h1>
-        <p className="text-sm text-muted-foreground mt-1">Керування персональними даними</p>
+    <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <h1 className="mb-8">Мій профіль</h1>
+
+      {/* Avatar block */}
+      <div className="bg-white border border-border rounded-2xl p-6 mb-6">
+        <div className="flex flex-col sm:flex-row items-center gap-6">
+          <div className="w-24 h-24 rounded-full bg-teal-100 flex items-center justify-center">
+            <User className="w-10 h-10 text-teal-600" />
+          </div>
+          <div className="text-center sm:text-left">
+            <h2>{user.firstName} {user.lastName}</h2>
+            <p className="text-sm text-muted-foreground">{roleLabel}</p>
+            <p className="text-xs text-muted-foreground mt-1">{user.email}</p>
+          </div>
+        </div>
       </div>
 
-      <section className="bg-white border border-border rounded-2xl p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-xl bg-teal-100 flex items-center justify-center">
-            <User className="w-5 h-5 text-teal-600" />
-          </div>
-          <div>
-            <h2>Особисті дані</h2>
-            <p className="text-xs text-muted-foreground">{user?.email} · {user?.role}</p>
-          </div>
-        </div>
-        <form onSubmit={profileForm.handleSubmit(saveProfile)} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="text-sm text-muted-foreground mb-1 block">Ім'я</label>
-            <input {...profileForm.register("firstName", { required: true })} className="w-full px-3 py-2 bg-gray-50 border border-border rounded-lg text-sm" />
-          </div>
-          <div>
-            <label className="text-sm text-muted-foreground mb-1 block">Прізвище</label>
-            <input {...profileForm.register("lastName", { required: true })} className="w-full px-3 py-2 bg-gray-50 border border-border rounded-lg text-sm" />
-          </div>
-          <div className="md:col-span-2">
-            <label className="text-sm text-muted-foreground mb-1 block">Телефон</label>
-            <input {...profileForm.register("phone")} className="w-full px-3 py-2 bg-gray-50 border border-border rounded-lg text-sm" />
-          </div>
-          <div className="md:col-span-2">
-            <button type="submit" disabled={pendingProfile} className="px-4 py-2 bg-teal-600 text-white rounded-lg text-sm hover:bg-teal-700 disabled:opacity-50">
-              {pendingProfile ? "Збереження…" : "Зберегти"}
+      {/* Edit form */}
+      <div className="bg-white border border-border rounded-2xl p-6 space-y-5 mb-6">
+        <div className="flex items-center justify-between">
+          <h3>Особиста інформація</h3>
+          {!editing && (
+            <button onClick={() => setEditing(true)} className="text-sm text-teal-600 flex items-center gap-1">
+              <Edit3 className="w-4 h-4" /> Редагувати
             </button>
-          </div>
-        </form>
-      </section>
+          )}
+        </div>
 
-      <section className="bg-white border border-border rounded-2xl p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center">
-            <Lock className="w-5 h-5 text-amber-600" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="text-sm text-muted-foreground mb-1.5 block">Ім'я</label>
+            <input
+              value={firstName}
+              onChange={(e) => setFirstName(e.target.value)}
+              disabled={!editing}
+              className="w-full px-3 py-2.5 bg-gray-50 border border-border rounded-lg text-sm disabled:text-foreground"
+            />
           </div>
-          <h2>Зміна паролю</h2>
+          <div>
+            <label className="text-sm text-muted-foreground mb-1.5 block">Прізвище</label>
+            <input
+              value={lastName}
+              onChange={(e) => setLastName(e.target.value)}
+              disabled={!editing}
+              className="w-full px-3 py-2.5 bg-gray-50 border border-border rounded-lg text-sm disabled:text-foreground"
+            />
+          </div>
+          <div>
+            <label className="text-sm text-muted-foreground mb-1.5 block">Email</label>
+            <div className="flex items-center gap-2 px-3 py-2.5 bg-gray-50 border border-border rounded-lg text-sm">
+              <Mail className="w-4 h-4 text-muted-foreground" />
+              <span>{user.email}</span>
+            </div>
+          </div>
+          <div>
+            <label className="text-sm text-muted-foreground mb-1.5 block">Телефон</label>
+            <div className="flex items-center gap-2 px-3 py-2.5 bg-gray-50 border border-border rounded-lg text-sm">
+              <Phone className="w-4 h-4 text-muted-foreground" />
+              <input
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                disabled={!editing}
+                placeholder="+380..."
+                className="w-full bg-transparent outline-none disabled:text-foreground"
+              />
+            </div>
+          </div>
         </div>
-        <form onSubmit={pwdForm.handleSubmit(changePwd)} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="text-sm text-muted-foreground mb-1 block">Поточний пароль</label>
-            <input type="password" {...pwdForm.register("currentPassword", { required: true })} className="w-full px-3 py-2 bg-gray-50 border border-border rounded-lg text-sm" />
-          </div>
-          <div>
-            <label className="text-sm text-muted-foreground mb-1 block">Новий пароль</label>
-            <input type="password" {...pwdForm.register("newPassword", { required: true, minLength: 6 })} className="w-full px-3 py-2 bg-gray-50 border border-border rounded-lg text-sm" />
-          </div>
-          <div className="md:col-span-2">
-            <button type="submit" disabled={pendingPwd} className="px-4 py-2 bg-teal-600 text-white rounded-lg text-sm hover:bg-teal-700 disabled:opacity-50">
-              {pendingPwd ? "Збереження…" : "Змінити пароль"}
+
+        {editing && (
+          <div className="flex gap-3 pt-2">
+            <button
+              onClick={save}
+              disabled={saving}
+              className="px-6 py-2.5 bg-teal-600 text-white rounded-lg text-sm hover:bg-teal-700 transition-colors disabled:opacity-50"
+            >
+              {saving ? "Збереження…" : "Зберегти зміни"}
+            </button>
+            <button
+              onClick={cancel}
+              className="px-6 py-2.5 border border-border text-muted-foreground rounded-lg text-sm hover:bg-gray-50 transition-colors"
+            >
+              Скасувати
             </button>
           </div>
-        </form>
-      </section>
+        )}
+      </div>
+
+      {/* Change password */}
+      <div className="bg-white border border-border rounded-2xl p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="flex items-center gap-2"><Lock className="w-4 h-4" /> Безпека</h3>
+          {!showPwd && (
+            <button onClick={() => setShowPwd(true)} className="text-sm text-teal-600">
+              Змінити пароль
+            </button>
+          )}
+        </div>
+
+        {showPwd && (
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm text-muted-foreground mb-1.5 block">Поточний пароль</label>
+              <input
+                type="password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                className="w-full px-3 py-2.5 bg-gray-50 border border-border rounded-lg text-sm"
+              />
+            </div>
+            <div>
+              <label className="text-sm text-muted-foreground mb-1.5 block">Новий пароль</label>
+              <input
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                className="w-full px-3 py-2.5 bg-gray-50 border border-border rounded-lg text-sm"
+              />
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={changePwd}
+                disabled={pwdSaving}
+                className="px-6 py-2.5 bg-teal-600 text-white rounded-lg text-sm hover:bg-teal-700 transition-colors disabled:opacity-50"
+              >
+                {pwdSaving ? "Збереження…" : "Зберегти"}
+              </button>
+              <button
+                onClick={() => { setShowPwd(false); setCurrentPassword(""); setNewPassword(""); }}
+                className="px-6 py-2.5 border border-border text-muted-foreground rounded-lg text-sm hover:bg-gray-50 transition-colors"
+              >
+                Скасувати
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

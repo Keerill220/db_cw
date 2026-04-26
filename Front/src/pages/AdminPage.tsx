@@ -1,295 +1,644 @@
-import { useEffect, useState } from "react";
-import { Link } from "react-router";
-import { Building2, BarChart3, Plus, Trash2, Pencil, Award } from "lucide-react";
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from "recharts";
-import { useForm } from "react-hook-form";
-import { studios, lookups, reports } from "../api";
-import type { City, OccupancyReportItem, PagedResult, RevenueReportItem, Studio, StudioCreate, TopRoom } from "../api/types";
-import { Pagination } from "../components/Pagination";
-import { notifyError } from "../api/client";
+import { useEffect, useMemo, useState } from "react";
+import { Building2, DoorOpen, Wrench, BarChart3, Plus, Edit3, Trash2, Users, X } from "lucide-react";
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
+import { studios as studiosApi, rooms as roomsApi, equipment as equipmentApi, lookups, reports } from "../api";
+import type { Studio, StudioDetail, RoomSummary, Equipment, City, EquipmentType, OccupancyReportItem, RevenueReportItem, TopRoom } from "../api/types";
+import { useAuth } from "../context/AuthContext";
 import { formatCurrency, monthLabel } from "../lib/format";
+import { notifyError } from "../api/client";
 import { toast } from "sonner";
 
-type Tab = "studios" | "reports";
+const tabs = [
+  { id: "studios", label: "Студії", icon: Building2 },
+  { id: "rooms", label: "Кімнати", icon: DoorOpen },
+  { id: "equipment", label: "Обладнання", icon: Wrench },
+  { id: "stats", label: "Статистика", icon: BarChart3 },
+] as const;
+
+type TabId = typeof tabs[number]["id"];
 
 export function AdminPage() {
-  const [tab, setTab] = useState<Tab>("studios");
+  const { role } = useAuth();
+  const [tab, setTab] = useState<TabId>("studios");
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div className="mb-6">
-        <h1>Адмін-панель</h1>
-        <p className="text-sm text-muted-foreground mt-1">Керування студіями, кімнатами та звіти</p>
+      <div className="flex items-center justify-between mb-8 flex-wrap gap-4">
+        <div>
+          <h1>Адмін-панель</h1>
+          <p className="text-sm text-muted-foreground">Управління студіями та бронюваннями</p>
+        </div>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Users className="w-4 h-4" /> {role === "Superadmin" ? "Суперадмін" : "Власник"}
+        </div>
       </div>
 
-      <div className="flex gap-1 p-1 bg-gray-100 rounded-lg w-fit mb-6">
-        <TabBtn active={tab === "studios"} onClick={() => setTab("studios")} icon={<Building2 className="w-4 h-4" />}>Студії</TabBtn>
-        <TabBtn active={tab === "reports"} onClick={() => setTab("reports")} icon={<BarChart3 className="w-4 h-4" />}>Звіти</TabBtn>
+      <div className="flex gap-1 mb-8 overflow-x-auto pb-2">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm whitespace-nowrap transition-colors ${
+              tab === t.id ? "bg-teal-600 text-white" : "bg-gray-100 text-muted-foreground hover:bg-gray-200"
+            }`}
+          >
+            <t.icon className="w-4 h-4" /> {t.label}
+          </button>
+        ))}
       </div>
 
-      {tab === "studios" && <StudiosAdmin />}
-      {tab === "reports" && <ReportsTab />}
+      {tab === "studios" && <StudiosTab />}
+      {tab === "rooms" && <RoomsTab />}
+      {tab === "equipment" && <EquipmentTab />}
+      {tab === "stats" && <StatsTab />}
     </div>
   );
 }
 
-function TabBtn({ active, onClick, icon, children }: { active: boolean; onClick: () => void; icon: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm transition-colors ${active ? "bg-white shadow-sm text-teal-700" : "text-muted-foreground hover:text-foreground"}`}
-    >
-      {icon} {children}
-    </button>
-  );
-}
+/* --------------------------------- Studios -------------------------------- */
 
-function StudiosAdmin() {
-  const [data, setData] = useState<PagedResult<Studio> | null>(null);
-  const [page, setPage] = useState(1);
-  const [loading, setLoading] = useState(true);
-  const [trigger, setTrigger] = useState(0);
-  const [showForm, setShowForm] = useState(false);
-  const [editing, setEditing] = useState<Studio | null>(null);
+function StudiosTab() {
+  const [items, setItems] = useState<Studio[]>([]);
   const [cities, setCities] = useState<City[]>([]);
+  const [editing, setEditing] = useState<Studio | null>(null);
+  const [creating, setCreating] = useState(false);
 
-  useEffect(() => { lookups.cities().then(setCities).catch(notifyError); }, []);
+  const load = () => {
+    studiosApi.list({ page: 1, pageSize: 100 }).then((r) => setItems(r.data)).catch(notifyError);
+  };
 
   useEffect(() => {
-    setLoading(true);
-    studios.list({ page, pageSize: 10 })
-      .then(setData)
-      .catch(notifyError)
-      .finally(() => setLoading(false));
-  }, [page, trigger]);
+    load();
+    lookups.cities().then(setCities).catch(() => {});
+  }, []);
 
   const remove = async (id: number) => {
     if (!confirm("Видалити студію?")) return;
     try {
-      await studios.remove(id);
+      await studiosApi.remove(id);
       toast.success("Студію видалено");
-      setTrigger((n) => n + 1);
-    } catch (e) { notifyError(e); }
+      load();
+    } catch (e) {
+      notifyError(e);
+    }
   };
 
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
         <h2>Студії</h2>
-        <button onClick={() => { setEditing(null); setShowForm(true); }} className="inline-flex items-center gap-1 px-4 py-2 bg-teal-600 text-white rounded-lg text-sm hover:bg-teal-700">
+        <button
+          onClick={() => setCreating(true)}
+          className="px-4 py-2 bg-teal-600 text-white rounded-lg text-sm flex items-center gap-2 hover:bg-teal-700"
+        >
           <Plus className="w-4 h-4" /> Додати студію
         </button>
       </div>
-
-      {loading && <div className="text-center py-12 text-muted-foreground">Завантаження…</div>}
-
       <div className="bg-white border border-border rounded-2xl overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50 text-muted-foreground text-left">
-            <tr>
-              <th className="px-4 py-3">Назва</th>
-              <th className="px-4 py-3">Місто</th>
-              <th className="px-4 py-3">Адреса</th>
-              <th className="px-4 py-3">Статус</th>
-              <th className="px-4 py-3 text-right">Дії</th>
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-border bg-gray-50">
+              <th className="text-left px-4 py-3 text-sm text-muted-foreground">Назва</th>
+              <th className="text-left px-4 py-3 text-sm text-muted-foreground">Місто</th>
+              <th className="text-left px-4 py-3 text-sm text-muted-foreground">Адреса</th>
+              <th className="text-left px-4 py-3 text-sm text-muted-foreground">Статус</th>
+              <th className="text-right px-4 py-3 text-sm text-muted-foreground">Дії</th>
             </tr>
           </thead>
           <tbody>
-            {data?.data.map((s) => (
-              <tr key={s.studioId} className="border-t border-border hover:bg-gray-50">
-                <td className="px-4 py-3 font-medium"><Link to={`/studios/${s.studioId}`} className="no-underline text-teal-700">{s.name}</Link></td>
-                <td className="px-4 py-3">{s.cityName}</td>
-                <td className="px-4 py-3">{s.address}</td>
+            {items.map((s) => (
+              <tr key={s.studioId} className="border-b border-border last:border-0">
+                <td className="px-4 py-3 text-sm">{s.name}</td>
+                <td className="px-4 py-3 text-sm text-muted-foreground">{s.cityName}</td>
+                <td className="px-4 py-3 text-sm text-muted-foreground">{s.address}</td>
                 <td className="px-4 py-3">
-                  <span className={`text-xs px-2 py-0.5 rounded ${s.isActive ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"}`}>
-                    {s.isActive ? "Активна" : "Не активна"}
+                  <span className={`px-2 py-0.5 rounded-full text-xs ${s.isActive ? "bg-green-50 text-green-600" : "bg-gray-100 text-gray-600"}`}>
+                    {s.isActive ? "Активна" : "Неактивна"}
                   </span>
                 </td>
-                <td className="px-4 py-3 text-right space-x-1">
-                  <button onClick={() => { setEditing(s); setShowForm(true); }} className="inline-flex items-center gap-1 px-2 py-1 border border-border rounded text-xs hover:bg-accent">
-                    <Pencil className="w-3 h-3" /> Редагувати
-                  </button>
-                  <button onClick={() => remove(s.studioId)} className="inline-flex items-center gap-1 px-2 py-1 bg-rose-50 text-rose-700 rounded text-xs hover:bg-rose-100 border border-rose-200">
-                    <Trash2 className="w-3 h-3" /> Видалити
-                  </button>
+                <td className="px-4 py-3 text-right">
+                  <div className="flex items-center justify-end gap-2">
+                    <button onClick={() => setEditing(s)} className="p-1.5 text-muted-foreground hover:text-teal-600">
+                      <Edit3 className="w-4 h-4" />
+                    </button>
+                    <button onClick={() => remove(s.studioId)} className="p-1.5 text-muted-foreground hover:text-red-500">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
+            {items.length === 0 && (
+              <tr><td colSpan={5} className="px-4 py-8 text-center text-sm text-muted-foreground">Студій немає</td></tr>
+            )}
           </tbody>
         </table>
       </div>
 
-      {data && <Pagination page={data.page} pageSize={data.pageSize} total={data.total} onChange={setPage} />}
-
-      {showForm && (
-        <StudioForm
-          studio={editing}
+      {(creating || editing) && (
+        <StudioModal
           cities={cities}
-          onClose={() => setShowForm(false)}
-          onSaved={() => { setShowForm(false); setTrigger((n) => n + 1); }}
+          studio={editing}
+          onClose={() => { setCreating(false); setEditing(null); }}
+          onSaved={() => { setCreating(false); setEditing(null); load(); }}
         />
       )}
     </div>
   );
 }
 
-function StudioForm({ studio, cities, onClose, onSaved }: { studio: Studio | null; cities: City[]; onClose: () => void; onSaved: () => void }) {
-  const { register, handleSubmit, formState: { errors } } = useForm<StudioCreate & { isActive?: boolean }>({
-    defaultValues: studio
-      ? { name: studio.name, cityId: cities.find((c) => c.name === studio.cityName)?.cityId ?? 0, address: studio.address, description: studio.description || "", photoUrl: studio.photoUrl || "", isActive: studio.isActive }
-      : { name: "", cityId: cities[0]?.cityId ?? 0, address: "", description: "", photoUrl: "", isActive: true },
-  });
-  const [pending, setPending] = useState(false);
+function StudioModal({ studio, cities, onClose, onSaved }: { studio: Studio | null; cities: City[]; onClose: () => void; onSaved: () => void }) {
+  const [name, setName] = useState(studio?.name ?? "");
+  const [cityId, setCityId] = useState<number>(cities.find((c) => c.name === studio?.cityName)?.cityId ?? cities[0]?.cityId ?? 0);
+  const [address, setAddress] = useState(studio?.address ?? "");
+  const [description, setDescription] = useState(studio?.description ?? "");
+  const [photoUrl, setPhotoUrl] = useState(studio?.photoUrl ?? "");
+  const [isActive, setIsActive] = useState(studio?.isActive ?? true);
+  const [saving, setSaving] = useState(false);
 
-  const submit = async (data: StudioCreate & { isActive?: boolean }) => {
-    setPending(true);
+  const save = async () => {
+    setSaving(true);
     try {
-      const payload = { ...data, cityId: Number(data.cityId) };
       if (studio) {
-        await studios.update(studio.studioId, { ...payload, isActive: !!data.isActive });
+        await studiosApi.update(studio.studioId, { name, cityId, address, description: description || null, photoUrl: photoUrl || null, isActive });
         toast.success("Студію оновлено");
       } else {
-        await studios.create(payload);
+        await studiosApi.create({ name, cityId, address, description: description || null, photoUrl: photoUrl || null });
         toast.success("Студію створено");
       }
       onSaved();
-    } catch (e) { notifyError(e); }
-    finally { setPending(false); }
+    } catch (e) {
+      notifyError(e);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <form onSubmit={handleSubmit(submit)} className="bg-white rounded-2xl w-full max-w-lg p-6 space-y-4">
-        <h2>{studio ? "Редагувати студію" : "Нова студія"}</h2>
-        <div>
-          <label className="text-sm text-muted-foreground mb-1 block">Назва</label>
-          <input {...register("name", { required: "Обов'язкове" })} className="w-full px-3 py-2 bg-gray-50 border border-border rounded-lg text-sm" />
-          {errors.name && <p className="text-xs text-rose-600 mt-1">{errors.name.message}</p>}
-        </div>
-        <div>
-          <label className="text-sm text-muted-foreground mb-1 block">Місто</label>
-          <select {...register("cityId", { required: true, valueAsNumber: true })} className="w-full px-3 py-2 bg-gray-50 border border-border rounded-lg text-sm">
+    <Modal title={studio ? "Редагувати студію" : "Нова студія"} onClose={onClose}>
+      <div className="space-y-4">
+        <Field label="Назва"><input value={name} onChange={(e) => setName(e.target.value)} className={inputCls} /></Field>
+        <Field label="Місто">
+          <select value={cityId} onChange={(e) => setCityId(Number(e.target.value))} className={inputCls}>
             {cities.map((c) => <option key={c.cityId} value={c.cityId}>{c.name}</option>)}
           </select>
-        </div>
-        <div>
-          <label className="text-sm text-muted-foreground mb-1 block">Адреса</label>
-          <input {...register("address", { required: "Обов'язкове" })} className="w-full px-3 py-2 bg-gray-50 border border-border rounded-lg text-sm" />
-        </div>
-        <div>
-          <label className="text-sm text-muted-foreground mb-1 block">Опис</label>
-          <textarea {...register("description")} rows={3} className="w-full px-3 py-2 bg-gray-50 border border-border rounded-lg text-sm" />
-        </div>
+        </Field>
+        <Field label="Адреса"><input value={address} onChange={(e) => setAddress(e.target.value)} className={inputCls} /></Field>
+        <Field label="Опис"><textarea value={description} onChange={(e) => setDescription(e.target.value)} className={`${inputCls} h-20`} /></Field>
+        <Field label="Фото URL"><input value={photoUrl} onChange={(e) => setPhotoUrl(e.target.value)} className={inputCls} /></Field>
         {studio && (
           <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" {...register("isActive")} className="accent-teal-600" /> Активна
+            <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="accent-teal-600" />
+            Активна
           </label>
         )}
-        <div className="flex justify-end gap-2 pt-2">
-          <button type="button" onClick={onClose} className="px-4 py-2 border border-border rounded-lg text-sm">Скасувати</button>
-          <button type="submit" disabled={pending} className="px-4 py-2 bg-teal-600 text-white rounded-lg text-sm hover:bg-teal-700 disabled:opacity-50">
-            {pending ? "Збереження…" : "Зберегти"}
+        <div className="flex gap-3 pt-2">
+          <button onClick={save} disabled={saving} className="px-6 py-2.5 bg-teal-600 text-white rounded-lg text-sm hover:bg-teal-700 disabled:opacity-50">
+            {saving ? "Збереження…" : "Зберегти"}
+          </button>
+          <button onClick={onClose} className="px-6 py-2.5 border border-border rounded-lg text-sm hover:bg-gray-50">Скасувати</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/* ---------------------------------- Rooms --------------------------------- */
+
+function RoomsTab() {
+  const [studios, setStudios] = useState<Studio[]>([]);
+  const [studioId, setStudioId] = useState<number | null>(null);
+  const [detail, setDetail] = useState<StudioDetail | null>(null);
+  const [editing, setEditing] = useState<RoomSummary | null>(null);
+  const [creating, setCreating] = useState(false);
+
+  useEffect(() => {
+    studiosApi.list({ page: 1, pageSize: 100 }).then((r) => {
+      setStudios(r.data);
+      if (r.data[0]) setStudioId(r.data[0].studioId);
+    }).catch(notifyError);
+  }, []);
+
+  const loadDetail = () => {
+    if (!studioId) return;
+    studiosApi.get(studioId).then(setDetail).catch(notifyError);
+  };
+
+  useEffect(loadDetail, [studioId]);
+
+  const remove = async (id: number) => {
+    if (!confirm("Видалити кімнату?")) return;
+    try { await roomsApi.remove(id); toast.success("Видалено"); loadDetail(); } catch (e) { notifyError(e); }
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+        <h2>Кімнати</h2>
+        <div className="flex items-center gap-3">
+          <select
+            value={studioId ?? ""}
+            onChange={(e) => setStudioId(Number(e.target.value))}
+            className="px-3 py-2 bg-white border border-border rounded-lg text-sm"
+          >
+            {studios.map((s) => <option key={s.studioId} value={s.studioId}>{s.name}</option>)}
+          </select>
+          <button
+            onClick={() => setCreating(true)}
+            disabled={!studioId}
+            className="px-4 py-2 bg-teal-600 text-white rounded-lg text-sm flex items-center gap-2 hover:bg-teal-700 disabled:opacity-50"
+          >
+            <Plus className="w-4 h-4" /> Додати кімнату
           </button>
         </div>
-      </form>
+      </div>
+
+      <div className="bg-white border border-border rounded-2xl overflow-hidden">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-border bg-gray-50">
+              <th className="text-left px-4 py-3 text-sm text-muted-foreground">Назва</th>
+              <th className="text-left px-4 py-3 text-sm text-muted-foreground">Площа</th>
+              <th className="text-left px-4 py-3 text-sm text-muted-foreground">Ціна</th>
+              <th className="text-left px-4 py-3 text-sm text-muted-foreground">Статус</th>
+              <th className="text-right px-4 py-3 text-sm text-muted-foreground">Дії</th>
+            </tr>
+          </thead>
+          <tbody>
+            {detail?.rooms.map((r) => (
+              <tr key={r.roomId} className="border-b border-border last:border-0">
+                <td className="px-4 py-3 text-sm">{r.name}</td>
+                <td className="px-4 py-3 text-sm">{r.areaSqm} м²</td>
+                <td className="px-4 py-3 text-sm text-teal-600">{formatCurrency(r.pricePerHour)}/год</td>
+                <td className="px-4 py-3">
+                  <span className={`px-2 py-0.5 rounded-full text-xs ${r.isAvailable ? "bg-green-50 text-green-600" : "bg-amber-50 text-amber-600"}`}>
+                    {r.isAvailable ? "Доступна" : "Тимчасово недоступна"}
+                  </span>
+                </td>
+                <td className="px-4 py-3 text-right">
+                  <div className="flex items-center justify-end gap-2">
+                    <button onClick={() => setEditing(r)} className="p-1.5 text-muted-foreground hover:text-teal-600"><Edit3 className="w-4 h-4" /></button>
+                    <button onClick={() => remove(r.roomId)} className="p-1.5 text-muted-foreground hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {(!detail || detail.rooms.length === 0) && (
+              <tr><td colSpan={5} className="px-4 py-8 text-center text-sm text-muted-foreground">Кімнат немає</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {(creating || editing) && studioId && (
+        <RoomModal
+          room={editing}
+          studioId={studioId}
+          onClose={() => { setCreating(false); setEditing(null); }}
+          onSaved={() => { setCreating(false); setEditing(null); loadDetail(); }}
+        />
+      )}
     </div>
   );
 }
 
-function ReportsTab() {
+function RoomModal({ room, studioId, onClose, onSaved }: { room: RoomSummary | null; studioId: number; onClose: () => void; onSaved: () => void }) {
+  const [name, setName] = useState(room?.name ?? "");
+  const [area, setArea] = useState<number>(room?.areaSqm ?? 20);
+  const [price, setPrice] = useState<number>(room?.pricePerHour ?? 200);
+  const [photoUrl, setPhotoUrl] = useState(room?.photoUrl ?? "");
+  const [isAvailable, setIsAvailable] = useState(room?.isAvailable ?? true);
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      if (room) {
+        await roomsApi.update(room.roomId, { name, areaSqm: area, pricePerHour: price, isAvailable, photoUrl: photoUrl || null });
+        toast.success("Кімнату оновлено");
+      } else {
+        await roomsApi.create({ studioId, name, areaSqm: area, pricePerHour: price, photoUrl: photoUrl || null });
+        toast.success("Кімнату створено");
+      }
+      onSaved();
+    } catch (e) { notifyError(e); } finally { setSaving(false); }
+  };
+
+  return (
+    <Modal title={room ? "Редагувати кімнату" : "Нова кімната"} onClose={onClose}>
+      <div className="space-y-4">
+        <Field label="Назва"><input value={name} onChange={(e) => setName(e.target.value)} className={inputCls} /></Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Площа (м²)"><input type="number" value={area} onChange={(e) => setArea(Number(e.target.value))} className={inputCls} /></Field>
+          <Field label="Ціна за год"><input type="number" value={price} onChange={(e) => setPrice(Number(e.target.value))} className={inputCls} /></Field>
+        </div>
+        <Field label="Фото URL"><input value={photoUrl} onChange={(e) => setPhotoUrl(e.target.value)} className={inputCls} /></Field>
+        {room && (
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={isAvailable} onChange={(e) => setIsAvailable(e.target.checked)} className="accent-teal-600" />
+            Доступна
+          </label>
+        )}
+        <div className="flex gap-3 pt-2">
+          <button onClick={save} disabled={saving} className="px-6 py-2.5 bg-teal-600 text-white rounded-lg text-sm hover:bg-teal-700 disabled:opacity-50">
+            {saving ? "Збереження…" : "Зберегти"}
+          </button>
+          <button onClick={onClose} className="px-6 py-2.5 border border-border rounded-lg text-sm hover:bg-gray-50">Скасувати</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/* -------------------------------- Equipment ------------------------------- */
+
+function EquipmentTab() {
+  const [studios, setStudios] = useState<Studio[]>([]);
+  const [studioId, setStudioId] = useState<number | null>(null);
+  const [detail, setDetail] = useState<StudioDetail | null>(null);
+  const [roomId, setRoomId] = useState<number | null>(null);
+  const [equipments, setEquipments] = useState<Equipment[]>([]);
+  const [types, setTypes] = useState<EquipmentType[]>([]);
+  const [editing, setEditing] = useState<Equipment | null>(null);
+  const [creating, setCreating] = useState(false);
+
+  useEffect(() => {
+    studiosApi.list({ page: 1, pageSize: 100 }).then((r) => {
+      setStudios(r.data);
+      if (r.data[0]) setStudioId(r.data[0].studioId);
+    });
+    lookups.equipmentTypes().then(setTypes);
+  }, []);
+
+  useEffect(() => {
+    if (!studioId) return;
+    studiosApi.get(studioId).then((s) => {
+      setDetail(s);
+      if (s.rooms[0]) setRoomId(s.rooms[0].roomId);
+    });
+  }, [studioId]);
+
+  const loadEq = () => {
+    if (!roomId) { setEquipments([]); return; }
+    roomsApi.get(roomId).then((rd) => {
+      // RoomDetail.equipments is summary only — need full Equipment objects.
+      // We'll fetch each via equipmentApi.get to retain edit capability.
+      Promise.all(rd.equipments.map((e) => equipmentApi.get(e.equipmentId)))
+        .then(setEquipments)
+        .catch(() => setEquipments([]));
+    });
+  };
+
+  useEffect(loadEq, [roomId]);
+
+  const remove = async (id: number) => {
+    if (!confirm("Видалити обладнання?")) return;
+    try { await equipmentApi.remove(id); toast.success("Видалено"); loadEq(); } catch (e) { notifyError(e); }
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+        <h2>Обладнання</h2>
+        <div className="flex items-center gap-3">
+          <select value={studioId ?? ""} onChange={(e) => setStudioId(Number(e.target.value))} className="px-3 py-2 bg-white border border-border rounded-lg text-sm">
+            {studios.map((s) => <option key={s.studioId} value={s.studioId}>{s.name}</option>)}
+          </select>
+          <select value={roomId ?? ""} onChange={(e) => setRoomId(Number(e.target.value))} className="px-3 py-2 bg-white border border-border rounded-lg text-sm">
+            {detail?.rooms.map((r) => <option key={r.roomId} value={r.roomId}>{r.name}</option>)}
+          </select>
+          <button onClick={() => setCreating(true)} disabled={!roomId} className="px-4 py-2 bg-teal-600 text-white rounded-lg text-sm flex items-center gap-2 hover:bg-teal-700 disabled:opacity-50">
+            <Plus className="w-4 h-4" /> Додати
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-white border border-border rounded-2xl overflow-hidden">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-border bg-gray-50">
+              <th className="text-left px-4 py-3 text-sm text-muted-foreground">Назва</th>
+              <th className="text-left px-4 py-3 text-sm text-muted-foreground">Тип</th>
+              <th className="text-left px-4 py-3 text-sm text-muted-foreground">Стан</th>
+              <th className="text-left px-4 py-3 text-sm text-muted-foreground">Ціна</th>
+              <th className="text-right px-4 py-3 text-sm text-muted-foreground">Дії</th>
+            </tr>
+          </thead>
+          <tbody>
+            {equipments.map((e) => (
+              <tr key={e.equipmentId} className="border-b border-border last:border-0">
+                <td className="px-4 py-3 text-sm">{e.name}</td>
+                <td className="px-4 py-3"><span className="px-2 py-0.5 bg-teal-50 text-teal-600 rounded-full text-xs">{e.typeName}</span></td>
+                <td className="px-4 py-3 text-sm text-muted-foreground">{e.condition ?? "—"}</td>
+                <td className="px-4 py-3 text-sm text-teal-600">{formatCurrency(e.pricePerHour)}/год</td>
+                <td className="px-4 py-3 text-right">
+                  <div className="flex items-center justify-end gap-2">
+                    <button onClick={() => setEditing(e)} className="p-1.5 text-muted-foreground hover:text-teal-600"><Edit3 className="w-4 h-4" /></button>
+                    <button onClick={() => remove(e.equipmentId)} className="p-1.5 text-muted-foreground hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {equipments.length === 0 && (
+              <tr><td colSpan={5} className="px-4 py-8 text-center text-sm text-muted-foreground">Обладнання немає</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {(creating || editing) && roomId && (
+        <EquipmentModal
+          equipment={editing}
+          roomId={roomId}
+          types={types}
+          onClose={() => { setCreating(false); setEditing(null); }}
+          onSaved={() => { setCreating(false); setEditing(null); loadEq(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function EquipmentModal({ equipment, roomId, types, onClose, onSaved }: { equipment: Equipment | null; roomId: number; types: EquipmentType[]; onClose: () => void; onSaved: () => void }) {
+  const [name, setName] = useState(equipment?.name ?? "");
+  const [typeId, setTypeId] = useState<number>(equipment?.typeId ?? types[0]?.typeId ?? 0);
+  const [condition, setCondition] = useState(equipment?.condition ?? "");
+  const [price, setPrice] = useState<number>(equipment?.pricePerHour ?? 0);
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      if (equipment) {
+        await equipmentApi.update(equipment.equipmentId, { typeId, name, condition: condition || null, pricePerHour: price });
+        toast.success("Оновлено");
+      } else {
+        await equipmentApi.create({ roomId, typeId, name, condition: condition || null, pricePerHour: price });
+        toast.success("Створено");
+      }
+      onSaved();
+    } catch (e) { notifyError(e); } finally { setSaving(false); }
+  };
+
+  return (
+    <Modal title={equipment ? "Редагувати обладнання" : "Нове обладнання"} onClose={onClose}>
+      <div className="space-y-4">
+        <Field label="Назва"><input value={name} onChange={(e) => setName(e.target.value)} className={inputCls} /></Field>
+        <Field label="Тип">
+          <select value={typeId} onChange={(e) => setTypeId(Number(e.target.value))} className={inputCls}>
+            {types.map((t) => <option key={t.typeId} value={t.typeId}>{t.name}</option>)}
+          </select>
+        </Field>
+        <Field label="Стан"><input value={condition} onChange={(e) => setCondition(e.target.value)} placeholder="Відмінний / Добрий…" className={inputCls} /></Field>
+        <Field label="Ціна за год"><input type="number" value={price} onChange={(e) => setPrice(Number(e.target.value))} className={inputCls} /></Field>
+        <div className="flex gap-3 pt-2">
+          <button onClick={save} disabled={saving} className="px-6 py-2.5 bg-teal-600 text-white rounded-lg text-sm hover:bg-teal-700 disabled:opacity-50">
+            {saving ? "Збереження…" : "Зберегти"}
+          </button>
+          <button onClick={onClose} className="px-6 py-2.5 border border-border rounded-lg text-sm hover:bg-gray-50">Скасувати</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/* ---------------------------------- Stats --------------------------------- */
+
+function StatsTab() {
   const [occ, setOcc] = useState<OccupancyReportItem[]>([]);
   const [rev, setRev] = useState<RevenueReportItem[]>([]);
   const [top, setTop] = useState<TopRoom[]>([]);
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    setLoading(true);
-    Promise.all([reports.occupancy(), reports.revenue(), reports.topRooms()])
-      .then(([o, r, t]) => { setOcc(o); setRev(r); setTop(t); })
-      .catch(notifyError)
-      .finally(() => setLoading(false));
+    reports.occupancy().then(setOcc).catch(() => {});
+    reports.revenue().then(setRev).catch(() => {});
+    reports.topRooms().then(setTop).catch(() => {});
   }, []);
 
-  // aggregate per month across studios
-  const occByMonth = aggregate(occ, (i) => `${i.year}-${String(i.month).padStart(2, "0")}`, (i) => Number(i.occupiedHours));
-  const revByMonth = aggregate(rev, (i) => `${i.year}-${String(i.month).padStart(2, "0")}`, (i) => Number(i.revenue));
+  const totalBookings = useMemo(() => occ.reduce((s, x) => s + x.totalBookings, 0), [occ]);
+  const totalHours = useMemo(() => occ.reduce((s, x) => s + x.occupiedHours, 0), [occ]);
+  const totalRevenue = useMemo(() => rev.reduce((s, x) => s + x.revenue, 0), [rev]);
 
-  if (loading) return <div className="text-center py-12 text-muted-foreground">Завантаження звітів…</div>;
+  // Aggregate by month for charts
+  const occByMonth = useMemo(() => {
+    const m = new Map<string, { label: string; bookings: number; hours: number }>();
+    for (const x of occ) {
+      const k = `${x.year}-${x.month}`;
+      const cur = m.get(k) ?? { label: monthLabel(x.year, x.month), bookings: 0, hours: 0 };
+      cur.bookings += x.totalBookings;
+      cur.hours += x.occupiedHours;
+      m.set(k, cur);
+    }
+    return Array.from(m.values());
+  }, [occ]);
+
+  const revByMonth = useMemo(() => {
+    const m = new Map<string, { label: string; revenue: number }>();
+    for (const x of rev) {
+      const k = `${x.year}-${x.month}`;
+      const cur = m.get(k) ?? { label: monthLabel(x.year, x.month), revenue: 0 };
+      cur.revenue += x.revenue;
+      m.set(k, cur);
+    }
+    return Array.from(m.values());
+  }, [rev]);
 
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white border border-border rounded-2xl p-5">
-          <h3 className="mb-3">Зайнятість (годин на місяць)</h3>
-          <ResponsiveContainer width="100%" height={260}>
-            <LineChart data={occByMonth}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="label" />
-              <YAxis />
-              <Tooltip />
-              <Legend />
-              <Line type="monotone" dataKey="value" name="Годин" stroke="#0d9488" strokeWidth={2} />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
+    <div>
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+        {[
+          { label: "Всього бронювань", value: totalBookings.toString() },
+          { label: "Годин заброньовано", value: totalHours.toString() },
+          { label: "Дохід", value: formatCurrency(totalRevenue) },
+        ].map((s) => (
+          <div key={s.label} className="bg-white border border-border rounded-2xl p-4">
+            <p className="text-xs text-muted-foreground mb-1">{s.label}</p>
+            <p className="text-2xl text-teal-600">{s.value}</p>
+          </div>
+        ))}
+      </div>
 
-        <div className="bg-white border border-border rounded-2xl p-5">
-          <h3 className="mb-3">Дохід за останні 7 місяців</h3>
-          <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={revByMonth}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="label" />
-              <YAxis />
-              <Tooltip formatter={(v: number) => formatCurrency(v)} />
-              <Legend />
-              <Bar dataKey="value" name="Дохід" fill="#0d9488" />
+      <div className="bg-white border border-border rounded-2xl p-6 mb-4">
+        <h3 className="mb-4">Завантаженість по місяцях</h3>
+        <div className="h-64">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={occByMonth}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+              <XAxis dataKey="label" fontSize={12} />
+              <YAxis fontSize={12} />
+              <Tooltip />
+              <Bar dataKey="hours" fill="#0d9488" radius={[6, 6, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
       </div>
 
-      <div className="bg-white border border-border rounded-2xl p-5">
-        <div className="flex items-center gap-2 mb-3">
-          <Award className="w-5 h-5 text-amber-600" />
-          <h3>Топ кімнат</h3>
+      <div className="bg-white border border-border rounded-2xl p-6 mb-4">
+        <h3 className="mb-4">Дохід по місяцях</h3>
+        <div className="h-64">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={revByMonth}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+              <XAxis dataKey="label" fontSize={12} />
+              <YAxis fontSize={12} />
+              <Tooltip formatter={(v: number) => formatCurrency(v)} />
+              <Line type="monotone" dataKey="revenue" stroke="#0d9488" strokeWidth={2} dot={{ fill: "#0d9488" }} />
+            </LineChart>
+          </ResponsiveContainer>
         </div>
-        <table className="w-full text-sm">
-          <thead className="text-muted-foreground text-left">
-            <tr>
-              <th className="py-2">Студія</th>
-              <th className="py-2">Кімната</th>
-              <th className="py-2">Бронювань</th>
-              <th className="py-2">Дохід</th>
-            </tr>
-          </thead>
-          <tbody>
-            {top.map((r) => (
-              <tr key={r.roomId} className="border-t border-border">
-                <td className="py-2">{r.studioName}</td>
-                <td className="py-2">{r.roomName}</td>
-                <td className="py-2">{r.totalBookings}</td>
-                <td className="py-2 text-teal-700">{formatCurrency(Number(r.totalRevenue))}</td>
-              </tr>
-            ))}
-            {top.length === 0 && (
-              <tr><td colSpan={4} className="py-6 text-center text-muted-foreground">Немає даних</td></tr>
-            )}
-          </tbody>
-        </table>
+      </div>
+
+      <div className="bg-white border border-border rounded-2xl p-6">
+        <h3 className="mb-4">Топ кімнат</h3>
+        <div className="space-y-4">
+          {top.slice(0, 5).map((r) => {
+            const max = top[0]?.totalBookings || 1;
+            const percent = Math.round((r.totalBookings / max) * 100);
+            return (
+              <div key={r.roomId}>
+                <div className="flex items-center justify-between text-sm mb-1">
+                  <span>{r.roomName} <span className="text-muted-foreground text-xs">({r.studioName})</span></span>
+                  <span className="text-teal-600">{r.totalBookings} бронь</span>
+                </div>
+                <div className="h-2 bg-gray-100 rounded-full">
+                  <div className="h-full bg-teal-500 rounded-full" style={{ width: `${percent}%` }} />
+                </div>
+              </div>
+            );
+          })}
+          {top.length === 0 && <p className="text-sm text-muted-foreground">Немає даних</p>}
+        </div>
       </div>
     </div>
   );
 }
 
-function aggregate<T>(items: T[], key: (i: T) => string, value: (i: T) => number) {
-  const map = new Map<string, number>();
-  for (const i of items) {
-    const k = key(i);
-    map.set(k, (map.get(k) ?? 0) + value(i));
-  }
-  return Array.from(map.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([k, v]) => {
-      const [y, m] = k.split("-").map(Number);
-      return { label: monthLabel(y, m), value: v };
-    });
+/* --------------------------------- Helpers -------------------------------- */
+
+const inputCls = "w-full px-3 py-2.5 bg-gray-50 border border-border rounded-lg text-sm";
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="text-sm text-muted-foreground mb-1.5 block">{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div
+        className="bg-white rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between p-5 border-b border-border">
+          <h3>{title}</h3>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="p-5">{children}</div>
+      </div>
+    </div>
+  );
 }
