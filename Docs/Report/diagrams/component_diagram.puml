@@ -1,0 +1,38 @@
+@startuml
+skinparam componentStyle uml2
+
+package "Клієнтська частина (React + TypeScript)" {
+  [React Components] as RC
+  [AuthContext] as AC
+  [API Client (axios/fetch)] as APIClient
+  [React Router] as Router
+}
+
+package "Серверна частина (ASP.NET Core Web API)" {
+  [Controllers] as Controllers
+  [Services (Business Logic)] as Services
+  [JWT Auth & Middleware] as Auth
+  [Repositories] as Repos
+  [Entity Framework Core] as EF
+}
+
+package "База даних (PostgreSQL)" {
+  database "SoundSpace DB" as DB
+  [Tables & Indexes] 
+  [Triggers & Procedures]
+}
+
+RC --> Router : "Навігація"
+RC --> AC : "Стан авторизації"
+RC --> APIClient : "Виклик API"
+APIClient --> Controllers : "HTTP(S) / JSON"
+
+Controllers --> Auth : "Валідація JWT"
+Controllers --> Services : "Обробка запитів"
+Services --> Repos : "Читання/Запис DTO"
+Repos --> EF : "LINQ запити"
+EF --> DB : "SQL команди"
+DB --> [Tables & Indexes] : "Збереження"
+[Tables & Indexes] --> [Triggers & Procedures] : "Бізнес-правила (no_overlap)"
+
+@enduml

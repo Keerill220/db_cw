@@ -37,7 +37,7 @@ argument-hint: "Який розділ/підрозділ потрібно нап
 
 ## Проєкт
 
-Інформаційна система «ВелоПрокат» — веб-застосунок для управління мережею пунктів прокату велосипедів.
+Інформаційна система «SoundSpace» — веб-застосунок для бронювання та менеджменту репетиційних баз та студій звукозапису.
 
 Стек:
 - **Backend:** ASP.NET Core 8, EF Core 8, PostgreSQL, JWT auth
@@ -45,15 +45,15 @@ argument-hint: "Який розділ/підрозділ потрібно нап
 - **БД:** PostgreSQL з тригерами, збереженими процедурами, індексами
 
 Код проєкту:
-- Backend: `Back/BicycleRental.Api/`
+- Backend: `Back/studiobooking.Api/`
 - Frontend: `Front/src/`
 - API типи: `Front/src/api/types.ts`, `Front/src/api/index.ts`
-- Моделі БД: `Back/BicycleRental.Api/Models/`
-- Контролери: `Back/BicycleRental.Api/Controllers/`
-- Сервіси: `Back/BicycleRental.Api/Services/`
-- DTOs: `Back/BicycleRental.Api/DTOs/`
-- Міграції: `Back/BicycleRental.Api/Migrations/`
-- DbContext: `Back/BicycleRental.Api/Data/ApplicationDbContext.cs`
+- Моделі БД: `Back/studiobooking.Api/Models/`
+- Контролери: `Back/studiobooking.Api/Controllers/`
+- Сервіси: `Back/studiobooking.Api/Services/`
+- DTOs: `Back/studiobooking.Api/DTOs/`
+- Міграції: `Back/studiobooking.Api/Migrations/`
+- DbContext: `Back/studiobooking.Api/Data/ApplicationDbContext.cs`
 
 ## Підхід
 

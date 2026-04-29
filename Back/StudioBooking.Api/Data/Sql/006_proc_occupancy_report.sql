@@ -1,6 +1,6 @@
 -- Stored Procedure 5: Studio occupancy report for last N months.
 -- Returns per-studio, per-month booking count and occupied hours.
-CREATE OR REPLACE FUNCTION sp_studio_occupancy_report(p_months INT DEFAULT 7)
+CREATE OR REPLACE PROCEDURE sp_studio_occupancy_report(p_months INT DEFAULT 7)
 RETURNS TABLE (
     studio_id    INT,
     studio_name  TEXT,

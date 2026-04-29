@@ -1,0 +1,28 @@
+@startuml
+skinparam handwritten true
+hide empty members
+hide methods
+hide circle
+
+entity "Місто (City)" as City
+entity "Студія (Studio)" as Studio
+entity "Адміністратор (Administrator)" as Admin
+entity "Клієнт (Client)" as Client
+entity "Кімната (Room)" as Room
+entity "Обладнання (Equipment)" as Equipment
+entity "Тип обладнання (EquipmentType)" as EquipmentType
+entity "Бронювання (Booking)" as Booking
+entity "Бронювання обладнання (BookingEquipment)" as BookingEquipment
+
+City "1" -- "0..*" Studio : розташована в
+Admin "1" -- "0..*" Studio : керує
+Studio "1" -- "1..*" Room : складається з
+Studio "1" -- "0..*" Equipment : володіє
+EquipmentType "1" -- "0..*" Equipment : класифікує
+Room "0..1" -- "0..*" Equipment : може містити
+Client "1" -- "0..*" Booking : створює
+Room "1" -- "0..*" Booking : бронюється у
+Booking "1" -- "0..*" BookingEquipment : включає
+Equipment "1" -- "0..*" BookingEquipment : додається до
+
+@enduml

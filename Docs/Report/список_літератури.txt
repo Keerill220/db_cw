@@ -1,0 +1,10 @@
+СПИСОК ЛІТЕРАТУРИ
+
+1. Microsoft Corporation. ASP.NET Core Fundamentals. – [Електронний ресурс]. – Режим доступу: https://learn.microsoft.com/en-us/aspnet/core/fundamentals/
+2. Microsoft Corporation. Entity Framework Core. – [Електронний ресурс]. – Режим доступу: https://learn.microsoft.com/en-us/ef/core/
+3. The PostgreSQL Global Development Group. PostgreSQL 16 Documentation. – [Електронний ресурс]. – Режим доступу: https://www.postgresql.org/docs/16/index.html
+4. Meta Platforms, Inc. (formerly Facebook). React. The library for web and native user interfaces. – [Електронний ресурс]. – Режим доступу: https://react.dev/
+5. Remix Software. React Router 7. – [Електронний ресурс]. – Режим доступу: https://reactrouter.com/
+6. TypeScript Handbook. TypeScript Official Docs. – [Електронний ресурс]. – Режим доступу: https://www.typescriptlang.org/docs/
+7. Tailwind Labs. Tailwind CSS Documentation. – [Електронний ресурс]. – Режим доступу: https://tailwindcss.com/docs/installation
+8. Vite. Next Generation Frontend Tooling. – [Електронний ресурс]. – Режим доступу: https://vitejs.dev/guide/

@@ -66,23 +66,21 @@ function StudiosTab() {
   const [query, setQuery] = useState("");
 
   const load = () => {
-    studiosApi.list({ page: 1, pageSize: 100 }).then((r) => setItems(r.data)).catch(notifyError);
+    studiosApi.list({ page: 1, pageSize: 1000, q: query || undefined }).then((r) => setItems(r.data)).catch(notifyError);
   };
 
   useEffect(() => {
-    load();
+    const t = setTimeout(() => {
+      load();
+    }, 300);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  useEffect(() => {
     lookups.cities().then(setCities).catch(() => {});
   }, []);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return items;
-    return items.filter((s) =>
-      s.name.toLowerCase().includes(q) ||
-      s.cityName.toLowerCase().includes(q) ||
-      s.address.toLowerCase().includes(q)
-    );
-  }, [items, query]);
+  const filtered = items;
 
   const remove = async (id: number) => {
     if (!confirm("Видалити студію?")) return;
@@ -236,7 +234,7 @@ function RoomsTab() {
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
-    studiosApi.list({ page: 1, pageSize: 100 }).then((r) => {
+    studiosApi.list({ page: 1, pageSize: 1000 }).then((r) => {
       setStudios(r.data);
       if (r.data[0]) setStudioId(r.data[0].studioId);
     }).catch(notifyError);
@@ -386,7 +384,7 @@ function EquipmentTab() {
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
-    studiosApi.list({ page: 1, pageSize: 100 }).then((r) => {
+    studiosApi.list({ page: 1, pageSize: 1000 }).then((r) => {
       setStudios(r.data);
       if (r.data[0]) setStudioId(r.data[0].studioId);
     });

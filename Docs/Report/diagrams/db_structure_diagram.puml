@@ -1,0 +1,44 @@
+@startuml
+skinparam componentStyle uml2
+
+package "Об'єкти та структури бази даних (PostgreSQL)" {
+    
+    database "SoundSpace_DB" {
+        folder "Довідники (Dictionaries)" as Dicts {
+            [cities]
+            [equipment_types]
+        }
+
+        folder "Суб'єкти (Actors)" as Actors {
+            [clients]
+            [administrators]
+        }
+
+        folder "Керування ресурсами (Resources)" as Res {
+            [studios]
+            [rooms]
+            [equipment]
+        }
+
+        folder "Бізнес-процеси (Transactions)" as Trans {
+            [bookings]
+            [booking_equipment]
+        }
+
+        folder "Автоматизована логіка (Stored Code)" as Stored {
+            [fn_booking_no_overlap()]
+            [fn_booking_calc_total_price()]
+            [fn_equipment_price_snapshot()]
+            [proc_occupancy_report()]
+        }
+    }
+}
+
+Dicts --> Res : "Використовується в описах"
+Actors --> Res : "Адміністратори керують студіями"
+Actors --> Trans : "Клієнти оформлюють"
+Res --> Trans : "Кімнати та обладнання бронюються"
+
+Trans --> Stored : "Виклик тригерів при INSERT/UPDATE"
+
+@enduml
