@@ -6,7 +6,7 @@ import { notifyError } from "../api/client";
 
 export function RegisterPage() {
   const navigate = useNavigate();
-  const { register } = useAuth();
+  const { initiateRegistration } = useAuth();
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
@@ -29,8 +29,8 @@ export function RegisterPage() {
     }
     setSubmitting(true);
     try {
-      await register({ email, password, firstName, lastName, phone: phone || undefined });
-      navigate("/");
+      const confirmedEmail = await initiateRegistration({ email, password, firstName, lastName, phone: phone || undefined });
+      navigate("/verify-email", { state: { email: confirmedEmail } });
     } catch (err) {
       notifyError(err);
     } finally {

@@ -44,9 +44,11 @@ builder.Services.AddCors(opts => opts.AddDefaultPolicy(p =>
     p.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials()));
 
 // ── DI: Auth helpers ─────────────────────────────────────────
+builder.Services.AddMemoryCache();
 builder.Services.AddScoped<ICurrentUser, CurrentUser>();
 builder.Services.AddScoped<IPasswordHasher, BcryptPasswordHasher>();
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
+builder.Services.AddScoped<IEmailService, SendGridEmailService>();
 
 // ── DI: Repositories ─────────────────────────────────────────
 builder.Services.AddScoped<IAdministratorRepository, AdministratorRepository>();

@@ -22,8 +22,16 @@ public class AuthController : ControllerBase
         _auth.LoginAdminAsync(dto, ct);
 
     [HttpPost("register")]
-    public Task<AuthResponse> Register([FromBody] RegisterRequest dto, CancellationToken ct) =>
-        _auth.RegisterClientAsync(dto, ct);
+    public Task<RegisterInitiatedResponse> Register([FromBody] RegisterRequest dto, CancellationToken ct) =>
+        _auth.InitiateRegistrationAsync(dto, ct);
+
+    [HttpPost("verify-email")]
+    public Task<AuthResponse> VerifyEmail([FromBody] VerifyEmailRequest dto, CancellationToken ct) =>
+        _auth.VerifyEmailAsync(dto, ct);
+
+    [HttpPost("resend-verification")]
+    public Task ResendVerification([FromBody] ResendVerificationRequest dto, CancellationToken ct) =>
+        _auth.ResendVerificationAsync(dto, ct);
 
     [Authorize]
     [HttpGet("me")]

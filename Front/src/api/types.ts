@@ -3,6 +3,11 @@ export type Role = "Superadmin" | "Owner" | "Client";
 export type AccountType = "admin" | "client";
 export type BookingStatus = "Pending" | "Confirmed" | "Cancelled" | "Completed";
 
+export interface RegisterInitiatedResponse {
+  email: string;
+  message: string;
+}
+
 export interface AuthResponse {
   token: string;
   role: Role;

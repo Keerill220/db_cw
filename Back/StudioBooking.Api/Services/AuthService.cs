@@ -1,7 +1,9 @@
+using Microsoft.Extensions.Caching.Memory;
 using StudioBooking.Api.Auth;
 using StudioBooking.Api.Common.Exceptions;
 using StudioBooking.Api.DTOs.Auth;
 using StudioBooking.Api.DTOs.Common;
+using StudioBooking.Api.Models;
 using StudioBooking.Api.Models.Entities;
 using StudioBooking.Api.Repositories.Interfaces;
 
@@ -11,7 +13,9 @@ public interface IAuthService
 {
     Task<AuthResponse> LoginClientAsync(LoginRequest request, CancellationToken ct);
     Task<AuthResponse> LoginAdminAsync(LoginRequest request, CancellationToken ct);
-    Task<AuthResponse> RegisterClientAsync(RegisterRequest request, CancellationToken ct);
+    Task<RegisterInitiatedResponse> InitiateRegistrationAsync(RegisterRequest request, CancellationToken ct);
+    Task<AuthResponse> VerifyEmailAsync(VerifyEmailRequest request, CancellationToken ct);
+    Task ResendVerificationAsync(ResendVerificationRequest request, CancellationToken ct);
     Task<MeResponse> GetMeAsync(CancellationToken ct);
     Task<ProfileUpdateDto> UpdateProfileAsync(ProfileUpdateDto dto, CancellationToken ct);
     Task ChangePasswordAsync(ChangePasswordDto dto, CancellationToken ct);
@@ -24,13 +28,19 @@ public class AuthService : IAuthService
     private readonly IPasswordHasher _hasher;
     private readonly IJwtTokenService _jwt;
     private readonly ICurrentUser _currentUser;
+    private readonly IEmailService _email;
+    private readonly IMemoryCache _cache;
+
+    private static string CacheKey(string email) => $"pending_reg:{email.ToLowerInvariant()}";
 
     public AuthService(
         IClientRepository clients, IAdministratorRepository admins,
-        IPasswordHasher hasher, IJwtTokenService jwt, ICurrentUser currentUser)
+        IPasswordHasher hasher, IJwtTokenService jwt, ICurrentUser currentUser,
+        IEmailService email, IMemoryCache cache)
     {
         _clients = clients; _admins = admins;
         _hasher = hasher; _jwt = jwt; _currentUser = currentUser;
+        _email = email; _cache = cache;
     }
 
     public async Task<AuthResponse> LoginClientAsync(LoginRequest request, CancellationToken ct)
@@ -56,24 +66,76 @@ public class AuthService : IAuthService
         return new AuthResponse(token, role, admin.AdminId, "admin", DateTime.UtcNow.AddDays(1));
     }
 
-    public async Task<AuthResponse> RegisterClientAsync(RegisterRequest request, CancellationToken ct)
+    public async Task<RegisterInitiatedResponse> InitiateRegistrationAsync(RegisterRequest request, CancellationToken ct)
     {
-        if (await _clients.FindByEmailAsync(request.Email, ct) != null)
+        var email = request.Email.ToLowerInvariant();
+        if (await _clients.FindByEmailAsync(email, ct) != null)
             throw new ConflictException("Email already registered.");
 
-        var client = new Client
+        var code = Random.Shared.Next(100000, 999999).ToString();
+        var pending = new PendingRegistration
         {
-            Email = request.Email,
+            Email = email,
             PasswordHash = _hasher.Hash(request.Password),
             FirstName = request.FirstName,
             LastName = request.LastName,
             Phone = request.Phone,
+            Code = code,
+            ExpiresAt = DateTime.UtcNow.AddMinutes(10),
+        };
+        _cache.Set(CacheKey(email), pending, TimeSpan.FromMinutes(10));
+
+        await _email.SendVerificationCodeAsync(email, code, ct);
+        return new RegisterInitiatedResponse(email, "Код підтвердження надіслано на ваш email.");
+    }
+
+    public async Task<AuthResponse> VerifyEmailAsync(VerifyEmailRequest request, CancellationToken ct)
+    {
+        var email = request.Email.ToLowerInvariant();
+        if (!_cache.TryGetValue(CacheKey(email), out PendingRegistration? pending) || pending is null)
+            throw new ValidationException("code", "Код недійсний або термін дії вичерпано.");
+
+        if (DateTime.UtcNow > pending.ExpiresAt)
+        {
+            _cache.Remove(CacheKey(email));
+            throw new ValidationException("code", "Термін дії коду вичерпано.");
+        }
+
+        if (pending.Code != request.Code)
+            throw new ValidationException("code", "Невірний код підтвердження.");
+
+        if (await _clients.FindByEmailAsync(email, ct) != null)
+            throw new ConflictException("Email already registered.");
+
+        var client = new Client
+        {
+            Email = email,
+            PasswordHash = pending.PasswordHash,
+            FirstName = pending.FirstName,
+            LastName = pending.LastName,
+            Phone = pending.Phone,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
         };
         await _clients.CreateAsync(client, ct);
+        _cache.Remove(CacheKey(email));
+
         var token = _jwt.GenerateToken(client.ClientId, client.Email, Roles.Client, "client");
         return new AuthResponse(token, Roles.Client, client.ClientId, "client", DateTime.UtcNow.AddDays(1));
+    }
+
+    public async Task ResendVerificationAsync(ResendVerificationRequest request, CancellationToken ct)
+    {
+        var email = request.Email.ToLowerInvariant();
+        if (!_cache.TryGetValue(CacheKey(email), out PendingRegistration? pending) || pending is null)
+            throw new ValidationException("email", "Немає активної реєстрації для цього email.");
+
+        var code = Random.Shared.Next(100000, 999999).ToString();
+        pending.Code = code;
+        pending.ExpiresAt = DateTime.UtcNow.AddMinutes(10);
+        _cache.Set(CacheKey(email), pending, TimeSpan.FromMinutes(10));
+
+        await _email.SendVerificationCodeAsync(email, code, ct);
     }
 
     public async Task<MeResponse> GetMeAsync(CancellationToken ct)

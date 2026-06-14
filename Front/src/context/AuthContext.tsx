@@ -11,7 +11,8 @@ interface AuthState {
   role: Role | null;
   loginClient: (email: string, password: string) => Promise<void>;
   loginAdmin: (email: string, password: string) => Promise<void>;
-  register: (data: { email: string; password: string; firstName: string; lastName: string; phone?: string }) => Promise<void>;
+  initiateRegistration: (data: { email: string; password: string; firstName: string; lastName: string; phone?: string }) => Promise<string>;
+  completeRegistration: (email: string, code: string) => Promise<void>;
   logout: () => void;
   refreshMe: () => Promise<void>;
 }
@@ -53,7 +54,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     role: user?.role ?? null,
     loginClient: async (email, password) => handleAuthResponse(await authApi.loginClient(email, password)),
     loginAdmin: async (email, password) => handleAuthResponse(await authApi.loginAdmin(email, password)),
-    register: async (data) => handleAuthResponse(await authApi.register(data)),
+    initiateRegistration: async (data) => {
+      const result = await authApi.initiateRegister(data);
+      return result.email;
+    },
+    completeRegistration: async (email, code) => handleAuthResponse(await authApi.verifyEmail(email, code)),
     logout: () => {
       localStorage.removeItem(TOKEN_KEY);
       setUser(null);

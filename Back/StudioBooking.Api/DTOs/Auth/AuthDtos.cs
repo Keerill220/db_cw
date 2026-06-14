@@ -13,6 +13,15 @@ public record RegisterRequest(
     [Required, MaxLength(100)] string LastName,
     [MaxLength(20)] string? Phone);
 
+public record RegisterInitiatedResponse(string Email, string Message);
+
+public record VerifyEmailRequest(
+    [Required, EmailAddress] string Email,
+    [Required, StringLength(6, MinimumLength = 6)] string Code);
+
+public record ResendVerificationRequest(
+    [Required, EmailAddress] string Email);
+
 public record AuthResponse(
     string Token,
     string Role,
