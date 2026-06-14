@@ -48,7 +48,7 @@ builder.Services.AddMemoryCache();
 builder.Services.AddScoped<ICurrentUser, CurrentUser>();
 builder.Services.AddScoped<IPasswordHasher, BcryptPasswordHasher>();
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
-builder.Services.AddScoped<IEmailService, SendGridEmailService>();
+builder.Services.AddScoped<IEmailService, SmtpEmailService>();
 
 // ── DI: Repositories ─────────────────────────────────────────
 builder.Services.AddScoped<IAdministratorRepository, AdministratorRepository>();

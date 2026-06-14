@@ -1,5 +1,5 @@
-using SendGrid;
-using SendGrid.Helpers.Mail;
+using System.Net;
+using System.Net.Mail;
 
 namespace StudioBooking.Api.Services;
 
@@ -8,24 +8,29 @@ public interface IEmailService
     Task SendVerificationCodeAsync(string toEmail, string code, CancellationToken ct);
 }
 
-public class SendGridEmailService : IEmailService
+public class SmtpEmailService : IEmailService
 {
-    private readonly string _apiKey;
+    private readonly string _host;
+    private readonly int _port;
+    private readonly string? _username;
+    private readonly string? _password;
+    private readonly bool _enableSsl;
     private readonly string _fromEmail;
     private readonly string _fromName;
 
-    public SendGridEmailService(IConfiguration config)
+    public SmtpEmailService(IConfiguration config)
     {
-        _apiKey = config["SendGrid:ApiKey"] ?? throw new InvalidOperationException("SendGrid:ApiKey not configured.");
-        _fromEmail = config["SendGrid:FromEmail"] ?? "noreply@studiobooking.com";
-        _fromName = config["SendGrid:FromName"] ?? "SoundSpace";
+        _host = config["Smtp:Host"] ?? throw new InvalidOperationException("Smtp:Host not configured.");
+        _port = int.TryParse(config["Smtp:Port"], out var port) ? port : 587;
+        _username = config["Smtp:Username"];
+        _password = config["Smtp:Password"];
+        _enableSsl = bool.TryParse(config["Smtp:EnableSsl"], out var enableSsl) ? enableSsl : true;
+        _fromEmail = config["Smtp:FromEmail"] ?? throw new InvalidOperationException("Smtp:FromEmail not configured.");
+        _fromName = config["Smtp:FromName"] ?? "SoundSpace";
     }
 
     public async Task SendVerificationCodeAsync(string toEmail, string code, CancellationToken ct)
     {
-        var client = new SendGridClient(_apiKey);
-        var from = new EmailAddress(_fromEmail, _fromName);
-        var to = new EmailAddress(toEmail);
         const string subject = "Код підтвердження SoundSpace";
         var plainContent = $"Ваш код підтвердження: {code}\n\nКод дійсний протягом 10 хвилин.";
         var htmlContent = $@"
@@ -37,12 +42,29 @@ public class SendGridEmailService : IEmailService
               <p style='color:#999;font-size:12px'>Якщо ви не реєструвались у SoundSpace, проігноруйте цей лист.</p>
             </div>";
 
-        var msg = MailHelper.CreateSingleEmail(from, to, subject, plainContent, htmlContent);
-        var response = await client.SendEmailAsync(msg, ct);
-        if ((int)response.StatusCode >= 400)
+        using var mail = new MailMessage
         {
-            var body = await response.Body.ReadAsStringAsync(ct);
-            throw new InvalidOperationException($"SendGrid returned {response.StatusCode}: {body}");
+            From = new MailAddress(_fromEmail, _fromName),
+            Subject = subject,
+            Body = htmlContent,
+            IsBodyHtml = true,
+        };
+        mail.To.Add(toEmail);
+        mail.AlternateViews.Add(AlternateView.CreateAlternateViewFromString(plainContent, null, "text/plain"));
+
+        using var client = new SmtpClient(_host, _port)
+        {
+            EnableSsl = _enableSsl,
+            DeliveryMethod = SmtpDeliveryMethod.Network,
+            UseDefaultCredentials = false,
+        };
+
+        if (!string.IsNullOrWhiteSpace(_username))
+        {
+            client.Credentials = new NetworkCredential(_username, _password);
         }
+
+        using var registration = ct.Register(client.SendAsyncCancel);
+        await client.SendMailAsync(mail, ct);
     }
 }
